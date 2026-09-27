@@ -1,0 +1,148 @@
+// Prisma schema — mirrors AJOCREDIT-PRD-Refined.md §2.4 (V1, Postgres 15)
+generator client { provider = "prisma-client-js" }
+datasource db { provider = "postgresql"; url = env("DATABASE_URL") }
+
+enum VerificationLevel { NONE OTP KYC_LITE BVN NIN }
+enum GroupType { ROTATIONAL TARGET }
+enum GroupStatus { FORMING ACTIVE COMPLETED CANCELLED }
+enum MembershipStatus { PENDING ACTIVE EXITED DEFAULTED }
+enum CycleStatus { OPEN DUE COLLECTING PAYOUT_PENDING SETTLED }
+enum MoneyStatus { PENDING CONFIRMED FAILED REVERSED LATE DEFAULTED }
+enum DisputeStatus { OPEN RESOLVED DISMISSED }
+
+model User {
+  id               String   @id @default(cuid())
+  phone            String   @unique
+  name             String
+  dob              DateTime?
+  verification     VerificationLevel @default(OTP)
+  ajocreditId      String   @unique
+  score            Int      @default(0)
+  tier             String   @default("Bronze")
+  provisional      Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  memberships      Membership[]
+  scoreHistory     ScoreHistory[]
+  consents         Consent[]
+}
+
+model Group {
+  id          String      @id @default(cuid())
+  name        String
+  type        GroupType
+  amount      Int
+  size        Int
+  frequency   String
+  startDate   DateTime
+  payoutMode  String
+  rules       Json
+  status      GroupStatus @default(FORMING)
+  createdAt   DateTime    @default(now())
+  memberships Membership[]
+  cycles      Cycle[]
+  ledger      LedgerEntry[]
+}
+
+model Membership {
+  id         String           @id @default(cuid())
+  userId     String
+  groupId    String
+  role       String           @default("member")
+  vaNo       String           @unique
+  payoutSlot Int?
+  status     MembershipStatus @default(PENDING)
+  joinedAt   DateTime         @default(now())
+  user       User   @relation(fields: [userId], references: [id])
+  group      Group  @relation(fields: [groupId], references: [id])
+  @@index([groupId, status])
+}
+
+model Cycle {
+  id           String      @id @default(cuid())
+  groupId      String
+  seq          Int
+  dueDate      DateTime
+  potExpected  Int
+  potCollected Int         @default(0)
+  status       CycleStatus @default(OPEN)
+  group        Group       @relation(fields: [groupId], references: [id])
+  @@unique([groupId, seq])
+  @@index([dueDate])
+}
+
+model Contribution {
+  id           String      @id @default(cuid())
+  membershipId String
+  cycleId      String
+  amount       Int
+  fee          Int
+  total        Int
+  method       String
+  reference    String      @unique
+  status       MoneyStatus @default(PENDING)
+  createdAt    DateTime    @default(now())
+}
+
+model Payout {
+  id            String      @id @default(cuid())
+  groupId       String
+  cycleId       String
+  beneficiaryId String
+  amount        Int
+  bankHash      String
+  status        MoneyStatus @default(PENDING)
+  idempotencyKey String     @unique
+  executedAt    DateTime?
+}
+
+model LedgerEntry {
+  id             String   @id @default(cuid())
+  groupId        String
+  debit          String
+  credit         String
+  amount         Int
+  type           String
+  refId          String
+  idempotencyKey String   @unique
+  status         MoneyStatus @default(PENDING)
+  hash           String
+  prevHash       String?
+  createdAt      DateTime @default(now())
+  group          Group    @relation(fields: [groupId], references: [id])
+  @@index([groupId, status])
+}
+
+model ScoreHistory {
+  id         String   @id @default(cuid())
+  userId     String
+  score      Int
+  inputs     Json
+  version    String   @default("v1.0")
+  prevHash   String?
+  hash       String
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id])
+}
+
+model Dispute {
+  id         String        @id @default(cuid())
+  groupId    String
+  cycleId    String?
+  raisedBy   String
+  category   String
+  evidence   Json          @default("[]")
+  status     DisputeStatus @default(OPEN)
+  resolution String?
+  createdAt  DateTime      @default(now())
+}
+
+model Consent {
+  id        String    @id @default(cuid())
+  userId    String
+  purpose   String
+  granted   Boolean
+  scopeHash String
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+  user      User      @relation(fields: [userId], references: [id])
+}
