@@ -1,0 +1,194 @@
+openapi: 3.0.3
+info:
+  title: AJOCREDIT API
+  version: 1.0.0
+  description: V1 — Ajo + Money + Score. Non-custodial ledger, idempotent webhooks, weights v1.0.
+servers:
+  - url: https://api.ajocredit.ng/v1
+paths:
+  /auth/otp/request:
+    post:
+      summary: Request OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone: { type: string, example: "+2348031234567" }
+      responses:
+        "200": { description: "OTP sent (<60s, 5-min expiry)" }
+        "429": { description: "Rate limited (5/15min)" }
+  /auth/otp/verify:
+    post:
+      summary: Verify OTP → session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, code, deviceId]
+              properties:
+                phone: { type: string }
+                code: { type: string }
+                deviceId: { type: string }
+      responses:
+        "200": { description: "JWT 15-min + rotating refresh" }
+        "401": { description: "Invalid/expired/locked" }
+  /auth/refresh:
+    post:
+      summary: Rotate refresh
+      responses:
+        "200": { description: "New access + refresh (reuse detected → revoke all)" }
+  /groups:
+    post:
+      summary: Create group (1-min) — US-03
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type, amount, size, frequency, startDate, payoutMode, rules]
+              properties:
+                name: { type: string }
+                type: { type: string, enum: [ROTATIONAL, TARGET] }
+                amount: { type: integer }
+                size: { type: integer, minimum: 5, maximum: 20 }
+                frequency: { type: string }
+                startDate: { type: string, format: date-time }
+                payoutMode: { type: string, enum: [admin, random, voting] }
+                rules: { type: object }
+      responses:
+        "201": { description: "Group forming + ledger opened + VA queue" }
+    get:
+      summary: List my groups
+      responses:
+        "200": { description: "Groups + pot progress" }
+  /groups/{id}/join:
+    post:
+      summary: Join via code — US-04
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: "Membership pending → VA assigned on approve" }
+        "409": { description: "Full → waitlist" }
+  /groups/{id}/approve:
+    post:
+      summary: Admin approve member
+      responses:
+        "200": { description: "Membership active" }
+  /groups/{id}/payout-order:
+    post:
+      summary: Freeze payout order — US-05
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode]
+              properties:
+                mode: { type: string, enum: [admin, random, voting] }
+                order: { type: array, items: { type: string } }
+                votes: { type: object }
+      responses:
+        "200": { description: "Order frozen in governance record" }
+        "409": { description: "Already frozen" }
+  /contributions/init:
+    post:
+      summary: Init contribution (fee pre-display) — US-06
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [membershipId, cycleId]
+              properties:
+                membershipId: { type: string }
+                cycleId: { type: string }
+                method: { type: string, enum: [transfer, card] }
+      responses:
+        "200": { description: "Principal + fee + total (e.g. 20000+200=20200) + VA/method" }
+  /webhooks/psp/{provider}:
+    post:
+      summary: PSP webhook (HMAC, dedupe rail_ref → pending→confirmed)
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema: { type: string, enum: [paystack, flutterwave] }
+      responses:
+        "200": { description: "Accepted (idempotent)" }
+  /groups/{id}/ledger:
+    get:
+      summary: Group ledger (append-only)
+      responses:
+        "200": { description: "Entries + suspense + daily close status" }
+  /payouts/initiate:
+    post:
+      summary: Maker initiates payout (quorum + balanced guard) — US-08
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [groupId, cycleId, beneficiaryId, amount, idempotencyKey]
+              properties:
+                groupId: { type: string }
+                cycleId: { type: string }
+                beneficiaryId: { type: string }
+                amount: { type: integer }
+                idempotencyKey: { type: string }
+      responses:
+        "201": { description: "Payout pending approval" }
+        "409": { description: "Duplicate idempotencyKey / unbalanced ledger / shortfall" }
+  /payouts/approve:
+    post:
+      summary: Checker approves (maker ≠ checker)
+      responses:
+        "200": { description: "Queued to batch 10:00/15:00 WAT, <24h SLA" }
+  /score/me:
+    get:
+      summary: My score + tier + explainer (weights v1.0)
+      responses:
+        "200": { description: "Score, tier, PROVISIONAL?, confidence, top drag factors" }
+  /score/history:
+    get:
+      summary: Score trend (6M sparkline)
+      responses:
+        "200": { description: "score_history + Δpts" }
+  /disputes:
+    post:
+      summary: Submit dispute (≤5 files/10MB, 14d window) — US-11
+      responses:
+        "201": { description: "Case open, SLA <7d" }
+    get:
+      summary: List disputes
+      responses:
+        "200": { description: "Cases + audit" }
+  /consents:
+    post:
+      summary: Grant lender consent (explicit, purpose-specific)
+      responses:
+        "201": { description: "Logged with scope hash" }
+    get:
+      summary: List consents
+      responses:
+        "200": { description: "Grants + revocations" }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+security:
+  - bearerAuth: []
