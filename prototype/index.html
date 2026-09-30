@@ -36,6 +36,8 @@ input,select{width:100%;padding:14px;font-size:16px;border-radius:8px;border:1px
 .toggle{font-size:12px;background:#fff;border:1px solid #ccc;border-radius:99px;padding:6px 10px;cursor:pointer}
 .quick{display:grid;grid-template-columns:1fr 1fr;gap:8px}.quick button{border:2px solid var(--black);background:#fff;border-radius:12px;padding:14px;font-size:14px;font-weight:700;cursor:pointer}
 .confetti{display:none;text-align:center;font-size:40px}.confetti.on{display:block;animation:pop .6s}
+img.groupimg{width:100%;height:130px;object-fit:cover;border-radius:10px;margin-bottom:8px}
+img.avatar{width:56px;height:56px;object-fit:cover;border-radius:50%;border:2px solid var(--gold)}
 @keyframes pop{0%{transform:scale(.5)}60%{transform:scale(1.2)}100%{transform:scale(1)}}
 </style>
 </head>
@@ -52,7 +54,7 @@ input,select{width:100%;padding:14px;font-size:16px;border-radius:8px;border:1px
 <div><b>Credit Power ━━━━━━━ 78%</b> <span class="ok">Strong</span> • Est. loan <b>₦500,000</b></div>
 <div class="meter"><i style="width:78%"></i></div>
 <div class="muted">✅ Consistency ✅ Attendance ✅ History ✅ Group Reputation</div></div>
-<div class="card"><div class="row"><b>Bodija Weekly</b><span class="badge">🏆 Trusted</span></div><div class="muted">₦80,000 / ₦100,000 • 16/20 don pay • Due in 2d</div><div class="bar"><i style="width:80%"></i></div></div>
+<div class="card"><img class="groupimg" src="photos/coop-cash.jfif" alt="Cooperative counting contributions"><div class="row"><b>Bodija Weekly</b><span class="badge">🏆 Trusted</span></div><div class="muted">₦80,000 / ₦100,000 • 16/20 don pay • Due in 2d</div><div class="bar"><i style="width:80%"></i></div></div>
 <div class="card"><b>Quick actions</b><div class="quick">
 <button onclick="go('admin')">➕ Create Group</button><button onclick="go('pay')">💰 Contribute</button>
 <button onclick="alert('Invite AJ-4821 copied')">👥 Invite</button><button onclick="go('score')">📈 Credit Report</button>
@@ -109,7 +111,7 @@ input,select{width:100%;padding:14px;font-size:16px;border-radius:8px;border:1px
 
 <!-- YOU -->
 <div class="screen" id="s-you">
-<div class="card"><b>Boniface • 0803… • KYC-LITE ✓</b><div class="muted">AJ-774821 • 2 groups • 🧕 Mama Bola: “I go show you how AJOCREDIT work.”</div><input value="GTB •• 0123 (verified)"><select><option>Pidgin</option><option>English</option><option>Yoruba</option><option>Hausa</option><option>Igbo</option></select></div>
+<div class="card"><div class="row"><div><b>Boniface • 0803… • KYC-LITE ✓</b></div><img class="avatar" src="photos/trader-hero.jfif" alt="Mama Bola"></div><div class="muted">AJ-774821 • 2 groups • 🧕 Mama Bola: “I go show you how AJOCREDIT work.”</div><input value="GTB •• 0123 (verified)"><select><option>Pidgin</option><option>English</option><option>Yoruba</option><option>Hausa</option><option>Igbo</option></select></div>
 <div class="card"><b>Bring Your Group — Earn Rewards</b><p class="muted">Move Your Ajo To AJOCREDIT, Get Bonuses. Code AJ-4821.</p><button class="btn sec" onclick="alert('Referral copied: AJ-4821')">Copy invite</button></div>
 <div class="card"><b>Dispute / Exit</b><select><option>No pay</option><option>Wrong amount</option><option>No payout</option></select><button class="btn sec" onclick="alert('Case #231 opened — 48h response, <7d resolve')">Submit case</button></div>
 </div>
