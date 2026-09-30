@@ -5,61 +5,86 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AJOCREDIT — Turn Your Ajo Into Bank Credit</title>
 <style>
-:root{--green:#0E7A4F;--greend:#0A5C3D;--gold:#D9A441;--goldbg:#FFF6E0;--ink:#101828;--mut:#667085;--bg:#F8FAF7}
-*{box-sizing:border-box}body{margin:0;font-family:Roboto,System-UI,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+:root{--gold:#D4AF37;--black:#121212;--white:#fff;--green:#16A34A;--orange:#F97316;--cream:#FFFDF7;--mut:#6b6b6b}
+*{box-sizing:border-box}body{margin:0;font-family:Roboto,System-UI,Arial,sans-serif;color:var(--black);background:var(--cream)}
 .wrap{max-width:960px;margin:0 auto;padding:0 20px}
-.hero{background:linear-gradient(135deg,var(--green) 0%,var(--greend) 70%);color:#fff;padding:64px 0 56px;text-align:center}
-.hero h1{margin:0 0 8px;font-size:40px}.hero p{opacity:.9;font-size:18px;margin:0 0 24px}
-.btn{display:inline-block;background:var(--gold);color:#3d2b00;font-weight:800;border-radius:999px;padding:16px 32px;text-decoration:none;font-size:17px}
-.btn.ghost{background:#fff;color:var(--green);border:2px solid #fff;margin-left:8px}
+.hero{background:var(--black);color:#fff;padding:64px 0 56px;text-align:center}
+.hero h1{margin:0 0 8px;font-size:42px}.hero h1 span{color:var(--gold)}
+.hero p{opacity:.9;font-size:18px;margin:0 0 24px}
+.btn{display:inline-block;background:var(--gold);color:var(--black);font-weight:800;border-radius:999px;padding:16px 32px;text-decoration:none;font-size:17px;border:0;cursor:pointer}
+.btn.ghost{background:transparent;color:#fff;border:2px solid var(--gold);margin-left:8px}
 .badges{display:flex;gap:8px;justify-content:center;margin-top:20px;flex-wrap:wrap}
-.badge{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.4);padding:6px 14px;border-radius:99px;font-size:13px}
+.badge{background:rgba(212,175,55,.15);border:1px solid var(--gold);padding:6px 14px;border-radius:99px;font-size:13px;color:var(--gold)}
+.banner{background:var(--gold);color:var(--black);text-align:center;padding:14px;font-weight:700}
+.banner small{display:block;font-weight:400}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;padding:40px 0}
-.card{background:#fff;border-radius:16px;padding:24px;box-shadow:0 1px 4px rgba(16,24,40,.1)}
-.card h3{margin:0 0 8px;color:var(--green)}.card p{color:var(--mut);font-size:15px}
-.tiers{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;padding:8px 0 32px}
-.tier{background:var(--goldbg);border:1px solid var(--gold);border-radius:12px;padding:12px 20px;font-weight:700}
+.card{background:var(--white);border-radius:16px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+.card h3{margin:0 0 8px}.card p{color:var(--mut);font-size:15px}
+.meter{height:16px;background:#eee;border-radius:99px;overflow:hidden}.meter>i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),var(--green))}
+.streak{font-size:20px;font-weight:800}.tiers{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;padding:8px 0 32px}
+.tier{background:#fff;border:2px solid var(--gold);border-radius:12px;padding:12px 20px;font-weight:700}
+.timeline{border-left:3px solid var(--gold);margin:16px 0 16px 8px;padding-left:20px;line-height:2.2}
+.mama{background:#fff;border:2px dashed var(--gold);border-radius:16px;padding:20px;margin:24px 0}
+.stats{display:flex;gap:16px;flex-wrap:wrap}.stat{background:#fff;border-radius:12px;padding:16px 24px;min-width:140px;text-align:center}.stat b{font-size:28px;display:block}
+.ok{color:var(--green);font-weight:700}.warn{color:var(--orange);font-weight:700}
+.lang{position:fixed;top:12px;right:12px;background:#fff;border:1px solid var(--gold);border-radius:99px;padding:6px 12px;font-size:13px;cursor:pointer}
 .how{background:#fff;padding:40px 0}.how ol{font-size:17px;line-height:2}
-.fee{background:var(--greend);color:#fff;text-align:center;padding:32px 20px;border-radius:16px;margin:32px 0}
+.fee{background:var(--black);color:#fff;text-align:center;padding:32px 20px;border-radius:16px;margin:32px 0}.fee b{color:var(--gold)}
 .cta{text-align:center;padding:40px 0}
 footer{color:var(--mut);font-size:13px;text-align:center;padding:24px}
+.photo{background:linear-gradient(135deg,#3a2c00,var(--gold));color:#fff;border-radius:16px;padding:40px 20px;text-align:center;font-size:18px;margin:8px 0}
 </style>
 </head>
 <body>
+<div class="banner">If Traditional Ajo Ends Today… Your AJOCREDIT Credit History Remains.<small>Current Credit Value: ₦850,000</small></div>
+<button class="lang" onclick="toggleLang()" id="langbtn">🇳🇬 Pidgin</button>
 <div class="hero"><div class="wrap">
-<h1>Turn Your Ajo Into Bank Credit</h1>
-<p>Save with your people. Build a real financial identity. Open doors to banks, MFIs & fintechs.</p>
-<a class="btn" href="index.html">Open the App Prototype</a>
-<a class="btn ghost" href="#how">How it works</a>
-<div class="badges"><span class="badge">Rotational Ajo</span><span class="badge">Target Savings</span><span class="badge">Score 0–1000</span><span class="badge">PWA • works on low data</span></div>
+<h1>Turn Your <span>Ajo</span> Into Bank Credit</h1>
+<p data-en="Save with your people. Build a real financial identity. Open doors to banks, MFIs & fintechs." data-pg="Save with your people. Make your Ajo count for bank loan.">Save with your people. Build a real financial identity. Open doors to banks, MFIs & fintechs.</p>
+<a class="btn" href="index.html" data-en="START MY AJO CREDIT JOURNEY" data-pg="MAKE I START">START MY AJO CREDIT JOURNEY</a>
+<a class="btn ghost" href="#how">See how</a>
+<div class="badges"><span class="badge">🛡 Verified Group</span><span class="badge">🏆 Trusted Group</span><span class="badge">⭐ Gold Group</span><span class="badge">👑 Elite Group</span><span class="badge">💎 Legacy Group</span></div>
 </div></div>
 
 <div class="wrap grid">
-<div class="card"><h3>👥 Your group, digital</h3><p>Create a pot in 1 minute. Invite with code AJ-4821 or QR. Admin, random or voting payout order — frozen before start.</p></div>
-<div class="card"><h3>💰 Pay with clarity</h3><p>Pot ₦20,000 + Fee ₦200 = ₦20,200. Card or transfer to your own virtual account. Receipt + SMS, even on low network.</p></div>
-<div class="card"><h3>🏆 Score that grows</h3><p>Every on-time payment lifts your AJOCREDIT Score. Ada went 11/12 → 742 Gold. Defaults drop you — fairly, with reasons shown.</p></div>
-<div class="card"><h3>🛡️ Safe by design</h3><p>AJOCREDIT never touches your money directly — partner safeguarded accounts + append-only ledger + two-person payout approval.</p></div>
+<div class="card"><h3>⚡ Credit Power</h3><div class="meter"><i style="width:78%"></i></div><p><b>78% — Strong.</b> Estimated loan access: <b>₦500,000</b></p><p class="ok">✅ Consistency ✅ Attendance ✅ History ✅ Group Reputation</p></div>
+<div class="card"><h3 class="streak">🔥 12 Weeks Streak</h3><p>You never missed payment. Reward: <b class="ok">+12 Credit Points</b></p></div>
+<div class="card"><h3>🌞 <span data-en="Good Morning" data-pg="Good Morning">Good Morning</span>, Boniface</h3><p data-en="Today your Ajo reputation is worth ₦250,000 in credit power." data-pg="Today your Ajo reputation worth ₦250,000 for loan.">Today your Ajo reputation is worth ₦250,000 in credit power.</p></div>
+<div class="card"><h3>👩🏾‍💼 Aunty Bola Dashboard</h3><div class="stats"><div class="stat"><b>24</b>Members</div><div class="stat"><b class="ok">22</b>Paid</div><div class="stat"><b class="warn">2</b>Pending</div><div class="stat"><b>92%</b>Collection</div></div><p class="ok">Group Credit Strength: Excellent</p></div>
+</div>
+
+<div class="wrap">
+<div class="mama"><b>🧕 Mama Bola says:</b> <span data-en="Welcome. I go show you how AJOCREDIT work." data-pg="Welcome. I go show you how AJOCREDIT work.">Welcome. I go show you how AJOCREDIT work.</span></div>
+<div class="photo">📸 Real Nigerian traders & cooperatives here — your photos, not stock.<br><small>(Add market/coop photos to prototype/photos/ — see note below)</small></div>
 </div>
 
 <div class="how" id="how"><div class="wrap">
-<h2>How it works</h2>
-<ol>
-<li><b>Create or join</b> — Aunty Bola makes “Bodija Weekly”, 10 members, ₦20k weekly.</li>
-<li><b>Contribute</b> — reminders T-24h, 48h grace, fee shown before you pay.</li>
-<li><b>Get paid</b> — countdown, verified recipient, payout in under 24 hours.</li>
-<li><b>Build credit</b> — Score + Trust tiers + portable Credit Passport with QR.</li>
-</ol>
-<div class="tiers"><span class="tier">Bronze 0–399</span><span class="tier">Silver 400–599</span><span class="tier">Gold 600–799</span><span class="tier">Platinum 800–1000</span></div>
+<h2>Your credit timeline</h2>
+<div class="timeline">
+<div><b>2026</b> — Joined AJOCREDIT</div>
+<div>↓ Completed First Cycle</div>
+<div>↓ Built Credit History</div>
+<div>↓ Eligible for <b>₦100,000</b></div>
+<div>↓ Eligible for <b>₦500,000</b></div>
+<div>↓ Eligible for <b>₦1 Million</b></div>
+</div>
+<h2>Bring your group, earn rewards</h2>
+<p><b>Move Your Ajo To AJOCREDIT — Get Bonuses.</b> Share code AJ-4821 via WhatsApp/SMS.</p>
+<p><a class="btn" href="index.html">JOIN AJOCREDIT — BUILD MY CREDIT</a></p>
 </div></div>
 
 <div class="wrap">
-<div class="fee"><h2 style="margin:0">Honest fees, pot stays whole</h2><p>Below ₦10k: 1.5% · ₦10k–100k: 1.0% · Above ₦100k: 0.75%. Always shown before you confirm.</p></div>
+<div class="fee"><h2 style="margin:0">Honest fees, pot stays whole</h2><p>Below ₦10k: <b>1.5%</b> · ₦10k–100k: <b>1.0%</b> · Above ₦100k: <b>0.75%</b>. Always shown before you confirm.</p></div>
 <div class="cta">
-<h2>Ready to turn ajo into credit?</h2>
-<p><a class="btn" href="index.html">Launch the interactive prototype</a></p>
-<p style="color:var(--mut)">Pilot: Bodija Weekly (10) + Shop Rent Target (8). WhatsApp support Mon–Sat.</p>
+<h2 data-en="Ready to turn ajo into credit?" data-pg="Ready to make your Ajo count?">Ready to turn ajo into credit?</h2>
+<p><a class="btn" href="index.html" data-en="JOIN NOW NOW" data-pg="JOIN NOW NOW">JOIN NOW NOW</a></p>
+<p style="color:var(--mut)">🎉 Complete 12 months → score +22%, confetti, share button. Pilot: Bodija Weekly + Shop Rent Target.</p>
 </div>
 </div>
-<footer>AJOCREDIT • Financial Identity through Community Savings • Prototype — partner & counsel validation pending</footer>
+<footer>AJOCREDIT • digital home of every Ajo, Esusu & Adashe group • Trust of a bank, warmth of a cooperative, simplicity of WhatsApp</footer>
+<script>
+let pg=false;
+function toggleLang(){pg=!pg;document.getElementById('langbtn').innerText=pg?'🇬🇧 English':'🇳🇬 Pidgin';document.querySelectorAll('[data-en]').forEach(el=>{el.innerText=pg?el.dataset.pg:el.dataset.en});}
+</script>
 </body>
 </html>

@@ -3,102 +3,115 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>AJOCREDIT — Prototype Phase 1</title>
+<title>AJOCREDIT — App</title>
 <style>
-:root{--green:#0E7A4F;--green-d:#0A5C3D;--gold:#D9A441;--gold-bg:#FFF6E0;--ink:#101828;--muted:#667085;--bg:#F8FAF7;--card:#fff;--danger:#B42318;--radius:12px}
-*{box-sizing:border-box}body{margin:0;font-family:Roboto,System-UI,Arial,sans-serif;background:#e9eee9;color:var(--ink)}
-.phone{max-width:400px;margin:16px auto;background:var(--bg);border-radius:24px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.18);min-height:760px;display:flex;flex-direction:column}
-.top{background:var(--green);color:#fff;padding:16px}
-.top h1{margin:0;font-size:20px}.top small{opacity:.85}
-.off{display:none;background:#B54708;color:#fff;padding:8px 16px;font-size:13px}.off.on{display:block}
+:root{--gold:#D4AF37;--black:#121212;--white:#fff;--green:#16A34A;--orange:#F97316;--cream:#FFFDF7;--radius:12px;--mut:#6b6b6b}
+*{box-sizing:border-box}body{margin:0;font-family:Roboto,System-UI,Arial,sans-serif;background:#e9e4d4;color:var(--black)}
+.phone{max-width:400px;margin:16px auto;background:var(--cream);border-radius:24px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.25);min-height:760px;display:flex;flex-direction:column}
+.top{background:var(--black);color:#fff;padding:16px}
+.top h1{margin:0;font-size:20px}.top h1 span{color:var(--gold)}.top small{opacity:.8}
+.live{background:var(--gold);color:var(--black);padding:8px 16px;font-size:13px;font-weight:700}
+.off{display:none;background:var(--orange);color:#fff;padding:8px 16px;font-size:13px}.off.on{display:block}
 .screen{display:none;padding:16px 16px 90px;flex:1}.screen.on{display:block}
-.card{background:var(--card);border-radius:var(--radius);padding:16px;margin-bottom:12px;box-shadow:0 1px 2px rgba(16,24,40,.08)}
+.card{background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:12px;box-shadow:0 1px 2px rgba(0,0,0,.1)}
 .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
-.muted{color:var(--muted);font-size:14px}.money{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums}
-.btn{display:block;width:100%;border:0;border-radius:999px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;background:var(--green);color:#fff;min-height:56px;margin-top:8px}
-.btn.sec{background:#fff;color:var(--green);border:2px solid var(--green)}
+.muted{color:var(--mut);font-size:14px}.money{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums}
+.btn{display:block;width:100%;border:0;border-radius:999px;padding:16px;font-size:16px;font-weight:800;cursor:pointer;background:var(--gold);color:var(--black);min-height:56px;margin-top:8px}
+.btn.sec{background:#fff;color:var(--black);border:2px solid var(--black)}
 .btn:disabled{opacity:.4}
-input,select{width:100%;padding:14px;font-size:16px;border-radius:8px;border:1px solid #ccc;margin:6px 0}
-.chips{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.chip{border:2px solid var(--green);border-radius:99px;padding:8px 14px;background:#fff;cursor:pointer;font-weight:600}.chip.on{background:var(--green);color:#fff}
-.bar{height:12px;background:#eee;border-radius:99px;overflow:hidden}.bar>i{display:block;height:100%;background:var(--green)}
-.tier{display:inline-block;background:var(--gold-bg);border:1px solid var(--gold);color:#7a5410;border-radius:99px;padding:4px 12px;font-weight:700;font-size:13px}
+input,select{width:100%;padding:14px;font-size:16px;border-radius:8px;border:1px solid #ccc;margin:6px 0;background:#fff}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.chip{border:2px solid var(--black);border-radius:99px;padding:8px 14px;background:#fff;cursor:pointer;font-weight:600}.chip.on{background:var(--black);color:var(--gold)}
+.bar{height:12px;background:#eee;border-radius:99px;overflow:hidden}.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),var(--green))}
+.meter{height:16px;background:#eee;border-radius:99px;overflow:hidden}.meter>i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),var(--green))}
+.tier{display:inline-block;background:#fff;border:2px solid var(--gold);color:#7a5c00;border-radius:99px;padding:4px 12px;font-weight:800;font-size:13px}
+.badge{display:inline-block;border:1px solid var(--gold);border-radius:99px;padding:2px 10px;font-size:12px;margin:2px}
 .nav{position:sticky;bottom:0;background:#fff;display:flex;border-top:1px solid #ddd}
-.nav button{flex:1;border:0;background:#fff;padding:10px 2px;font-size:11px;cursor:pointer;color:var(--muted)}
-.nav button.on{color:var(--green);font-weight:800}
+.nav button{flex:1;border:0;background:#fff;padding:10px 2px;font-size:11px;cursor:pointer;color:var(--mut)}
+.nav button.on{color:var(--black);font-weight:800}
 .member{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee;font-size:14px}
 .receipt{border:1px dashed var(--green);border-radius:12px;padding:12px;background:#f2faf5}
-.qr{width:120px;height:120px;background:repeating-linear-gradient(45deg,#101828 0 4px,#fff 4px 8px);border-radius:8px;margin:8px auto}
-.note{font-size:13px;color:var(--muted)}
-.ok{color:var(--green);font-weight:700}.warn{color:#B54708;font-weight:700}.bad{color:var(--danger);font-weight:700}
-.toggle{font-size:13px;background:#fff;border:1px solid #ccc;border-radius:99px;padding:6px 10px;cursor:pointer}
+.qr{width:120px;height:120px;background:repeating-linear-gradient(45deg,#121212 0 4px,#fff 4px 8px);border-radius:8px;margin:8px auto}
+.note{font-size:13px;color:var(--mut)}
+.ok{color:var(--green);font-weight:700}.warn{color:var(--orange);font-weight:700}.bad{color:#B42318;font-weight:700}
+.toggle{font-size:12px;background:#fff;border:1px solid #ccc;border-radius:99px;padding:6px 10px;cursor:pointer}
+.quick{display:grid;grid-template-columns:1fr 1fr;gap:8px}.quick button{border:2px solid var(--black);background:#fff;border-radius:12px;padding:14px;font-size:14px;font-weight:700;cursor:pointer}
+.confetti{display:none;text-align:center;font-size:40px}.confetti.on{display:block;animation:pop .6s}
+@keyframes pop{0%{transform:scale(.5)}60%{transform:scale(1.2)}100%{transform:scale(1)}}
 </style>
 </head>
 <body>
 <div class="phone">
-<div class="top"><div class="row"><div><h1>AJOCREDIT</h1><small>Turn Your Ajo Into Bank Credit • P1</small></div><button class="toggle" onclick="document.getElementById('off').classList.toggle('on');this.innerText=this.innerText=='Go offline'?'Go online':'Go offline'">Go offline</button></div></div>
+<div class="top"><div class="row"><div><h1>AJO<span>CREDIT</span></h1><small id="greet">🌞 Good Morning, Boniface — today your Ajo reputation is worth ₦250,000 in credit power.</small></div><div><button class="toggle" onclick="toggleLang()" id="langbtn">🇳🇬</button> <button class="toggle" onclick="document.getElementById('off').classList.toggle('on')">⇅</button></div></div></div>
+<div class="live">If Traditional Ajo Ends Today… Your History Remains. Credit Value: ₦850,000</div>
 <div class="off" id="off">Offline — 2 actions go send later [View queue]</div>
 
 <!-- HOME -->
 <div class="screen on" id="s-home">
-<div class="card"><span class="tier">GOLD • 742</span><div class="money">₦220,000 <span class="muted" style="font-size:14px">saved</span></div><div class="muted">11/12 on-time • +5 last payment</div><div class="bar" style="margin-top:8px"><i style="width:74%"></i></div></div>
-<div class="card"><div class="row"><b>Bodija Market Weekly</b><span class="ok">● Due in 2d</span></div><div class="muted">₦80,000 / ₦100,000 • 16/20 don pay</div><div class="bar"><i style="width:80%"></i></div></div>
-<div class="card"><div class="row"><b>Target: Shop Rent</b><span class="muted">₦150k / ₦500k</span></div><div class="bar"><i style="width:30%"></i></div></div>
+<div class="card"><div class="row"><span class="tier">⭐ GOLD • 742</span><span class="badge">🔥 12 wks streak +12</span></div>
+<div class="money">₦220,000 <span class="muted" style="font-size:14px">saved</span></div>
+<div><b>Credit Power ━━━━━━━ 78%</b> <span class="ok">Strong</span> • Est. loan <b>₦500,000</b></div>
+<div class="meter"><i style="width:78%"></i></div>
+<div class="muted">✅ Consistency ✅ Attendance ✅ History ✅ Group Reputation</div></div>
+<div class="card"><div class="row"><b>Bodija Weekly</b><span class="badge">🏆 Trusted</span></div><div class="muted">₦80,000 / ₦100,000 • 16/20 don pay • Due in 2d</div><div class="bar"><i style="width:80%"></i></div></div>
+<div class="card"><b>Quick actions</b><div class="quick">
+<button onclick="go('admin')">➕ Create Group</button><button onclick="go('pay')">💰 Contribute</button>
+<button onclick="alert('Invite AJ-4821 copied')">👥 Invite</button><button onclick="go('score')">📈 Credit Report</button>
+</div></div>
+<div class="card"><b>Recent activity</b><div class="muted" id="feed">• <span data-en="Contribution Received" data-pg="Money Don Enter">Contribution Received</span> ₦20,000 ✓<br>• <span data-en="Your Credit Profile Increased" data-pg="Your Credit Don Strong Pass Before">Your Credit Profile Increased</span> +5<br>• New member Tunde joined</div></div>
 <button class="btn" onclick="go('pots')">View my Pots</button>
-<button class="btn sec" onclick="go('admin')">Admin: create group (1-min)</button>
 </div>
 
 <!-- POTS -->
 <div class="screen" id="s-pots">
-<div class="card"><b>Bodija Market Weekly</b><div class="muted">Rotational • ₦20,000 • 10 members • Weekly</div><div class="money">₦80,000 / ₦100,000</div><div class="bar"><i style="width:80%"></i></div><p class="muted">Payout order: voting frozen • Your slot #7 (3 wks left)</p></div>
+<div class="card"><div class="row"><b>Bodija Weekly</b><span class="badge">🛡 Verified</span></div><div class="muted">Rotational • ₦20,000 • 10 members • Weekly</div><div class="money">₦80,000 / ₦100,000</div><div class="bar"><i style="width:80%"></i></div><p class="muted">Order: voting frozen • Your slot #7</p></div>
 <div class="card"><b>Members</b>
-<div class="member"><span>Adaeze O. (you) • slot 7</span><span class="ok">paid ✓</span></div>
-<div class="member"><span>Mama Nkechi • slot 1</span><span class="ok">paid ✓</span></div>
-<div class="member"><span>Chidi • slot 4</span><span class="warn">grace 12h left</span></div>
-<div class="member"><span>Funmi • slot 6</span><span class="bad">late +₦500 fee</span></div>
-</div>
-<div class="card"><b>Payout countdown</b><div class="money">₦100,000 go land in 2d 4h</div><div class="muted">Recipient: Mama Nkechi • verified ✓ • 16/20 collected</div><p class="note">Edge: shortfall → partial blocked until quorum per rules. Duplicate payout job → idempotency blocks 2nd debit.</p></div>
-<button class="btn" onclick="go('pay')">Pay my contribution</button>
+<div class="member"><span>Adaeze (you) • #7</span><span class="ok">paid ✓</span></div>
+<div class="member"><span>Mama Nkechi • #1</span><span class="ok">paid ✓</span></div>
+<div class="member"><span>Chidi • #4</span><span class="warn">due today — Today Na Your Turn To Pay</span></div>
+<div class="member"><span>Funmi • #6</span><span class="bad">late +₦500</span></div></div>
+<div class="card"><b>Payout countdown</b><div class="money">₦100,000 go land in 2d 4h</div><div class="muted">Mama Nkechi • verified ✓ • 16/20</div></div>
+<button class="btn" onclick="go('pay')">Contribute now</button>
 </div>
 
 <!-- PAY -->
 <div class="screen" id="s-pay">
-<div class="card"><b>You dey pay ₦20,000</b><div class="row"><span>Pot</span><b>₦20,000</b></div><div class="row"><span>Fee (1%)</span><b>₦200</b></div><div class="row"><span>Total</span><span class="money">₦20,200</span></div>
-<label class="muted">Method</label><select id="m"><option>Bank transfer to VA 9876543210</option><option>Card (Verve/Mastercard/Visa)</option></select>
+<div class="card"><b data-en="You dey pay ₦20,000" data-pg="You dey pay ₦20,000">You dey pay ₦20,000</b><div class="row"><span>Pot</span><b>₦20,000</b></div><div class="row"><span>Fee (1%)</span><b>₦200</b></div><div class="row"><span>Total</span><span class="money">₦20,200</span></div>
+<select><option>Bank transfer to VA 9876543210</option><option>Card (Verve/Mastercard/Visa)</option></select>
 <button class="btn" id="paybtn" onclick="pay()">Pay ₦20,200 now</button>
 <button class="btn sec" onclick="payFail()">Simulate failed card</button>
-<p class="note">No data? Use USSD *347*20000*AJ4821# • Receipt via SMS. Wrong amount → unmatched queue (no auto-confirm).</p></div>
-<div class="card" id="rcpt" style="display:none"><b>Receipt</b><div class="receipt">Twenty Thousand Naira Only<br>Pot ₦20,000 + Fee ₦200 = ₦20,200<br>Ref AJ-4821-C3-Ada • <span class="ok">Confirmed</span><br>Score +5 → 747 Gold</div></div>
-<div class="card" id="fail" style="display:none"><b class="bad">Payment fail</b><p class="muted">Card declined. No ledger entry. Retry / use transfer to VA. Double-tap blocked by idempotency.</p><button class="btn" onclick="pay()">Retry</button></div>
+<p class="note">No data? *347*20000*AJ4821# • Wrong amount → unmatched queue.</p></div>
+<div class="card confetti" id="party">🎉🎉🎉</div>
+<div class="card" id="rcpt" style="display:none"><b data-en="Contribution Received" data-pg="Money Don Enter">Contribution Received</b><div class="receipt"><span data-en="Your Credit Profile Increased" data-pg="Your Credit Don Strong Pass Before">Your Credit Profile Increased</span> +5 → 747 Gold<br>Ref AJ-4821-C3-Ada • <span class="ok">Confirmed</span></div></div>
+<div class="card" id="fail" style="display:none"><b class="bad">Payment fail</b><p class="muted">Declined. No ledger entry. Retry / transfer to VA.</p><button class="btn" onclick="pay()">Retry</button></div>
 </div>
 
 <!-- ADMIN -->
 <div class="screen" id="s-admin">
-<div class="card"><b>Create group (1-min)</b>
+<div class="card"><b data-en="Group Successfully Created" data-pg="Your Ajo Group Don Ready">Create group (1-min)</b>
 <input id="gname" value="Bodija Market Mon-Thrift">
-<div class="chips" id="amt"><span class="chip">₦1k</span><span class="chip">₦2k</span><span class="chip">₦5k</span><span class="chip on">₦10k</span></div>
-<div class="chips" id="freq"><span class="chip on">Weekly</span><span class="chip">Monthly</span></div>
-<label class="muted">Members (5-20)</label><input type="number" value="10" min="5" max="20">
-<label class="muted">Payout order</label><select id="pmode"><option>Member voting (&gt;50%)</option><option>Admin assigned</option><option>Random draw</option></select>
-<button class="btn" onclick="createGroup()">Create pot</button>
+<div class="chips"><span class="chip">₦1k</span><span class="chip">₦2k</span><span class="chip">₦5k</span><span class="chip on">₦10k</span></div>
+<div class="chips"><span class="chip on">Weekly</span><span class="chip">Monthly</span></div>
+<input type="number" value="10" min="5" max="20">
+<select><option>Member voting (&gt;50%)</option><option>Admin assigned</option><option>Random draw</option></select>
+<button class="btn" onclick="createGroup()">START MY AJO CREDIT JOURNEY</button>
 <p class="note" id="gmsg"></p></div>
-<div class="card"><b>Approve joins (2 pending)</b>
-<div class="member"><span>Tunde • 0805… • OTP ✓</span><button class="toggle" onclick="this.innerText='Approved ✓'">Approve</button></div>
-<div class="member"><span>Aisha • 0702… • OTP ✓</span><button class="toggle" onclick="this.innerText='Approved ✓'">Approve</button></div>
-<p class="note">Over-capacity → waitlist. Slots lock at 10/10.</p></div>
-<div class="card"><b>Payout order voting</b><div class="muted">Mama #1: 6 votes • Chidi #4: 3 votes • Quorum 6/10 • Deadline Fri 6pm</div><div class="bar"><i style="width:60%"></i></div><button class="btn sec" onclick="alert('Vote recorded. Tie/no-quorum → fallback admin or random after deadline.')">Vote Mama #1</button></div>
+<div class="card"><b>Approve joins (2)</b>
+<div class="member"><span>Tunde • OTP ✓</span><button class="toggle" onclick="this.innerText='Approved ✓'">Approve</button></div>
+<div class="member"><span>Aisha • OTP ✓</span><button class="toggle" onclick="this.innerText='Approved ✓'">Approve</button></div></div>
+<div class="card"><b>Voting</b><div class="muted">Mama #1: 6 votes • Quorum 6/10 • Fri 6pm</div><div class="bar"><i style="width:60%"></i></div><button class="btn sec" onclick="alert('Vote recorded.')">Vote Mama #1</button></div>
 </div>
 
 <!-- SCORE -->
 <div class="screen" id="s-score">
-<div class="card" style="text-align:center"><span class="tier">GOLD • 742</span><div class="money">742 / 1000</div><div class="muted">Silver 400 • Gold 600 • Platinum 800</div><div class="bar"><i style="width:74%"></i></div><p><b>Why?</b> 11/12 on-time (+60) • 1 late (-20) • streak 8 • 1 group done</p><p class="note">PROVISIONAL until 3 dues + 21 days. Decay 90-day half-life. Weights v1.0.</p></div>
-<div class="card"><b>Credit Passport</b><div class="qr"></div><div class="muted" style="text-align:center">AJOCREDIT ID AJ-774821 • Scan to verify<br><button class="btn sec" onclick="alert('Consent explicit, purpose-specific, revocable, logged. Basic free / Standard ₦500 / Verified ₦1500 / Institutional ₦5000')">Share with lender (consent)</button></div></div>
+<div class="card" style="text-align:center"><span class="tier">⭐ GOLD • 742</span><div class="money">742 / 1000</div><div class="meter"><i style="width:74%"></i></div><p><b>Why?</b> 11/12 on-time (+60) • 1 late (-20) • streak 8</p><p class="note">2026: Joined → First cycle → History → ₦100k → ₦500k → ₦1M eligible</p></div>
+<div class="card"><b>Credit Passport</b><div class="qr"></div><div class="muted" style="text-align:center">AJ-774821 • Scan to verify<br><button class="btn sec" onclick="alert('Consent explicit, revocable, logged. Basic free / Standard ₦500 / Verified ₦1500 / Institutional ₦5000')">Share with lender</button></div></div>
 </div>
 
 <!-- YOU -->
 <div class="screen" id="s-you">
-<div class="card"><b>Adaeze O. • 0803… • KYC-LITE ✓</b><div class="muted">AJ-774821 • 2 groups • Since Sep 2026</div><label class="muted">Payout bank</label><input value="GTB •• 0123 (verified)"><label class="muted">Language</label><select><option>Pidgin</option><option>English</option><option>Yoruba</option><option>Hausa</option><option>Igbo</option></select></div>
-<div class="card"><b>Dispute</b><select><option>No pay</option><option>Wrong amount</option><option>No payout</option></select><input placeholder="What happened? + evidence photo"><button class="btn sec" onclick="alert('Case #231 opened — respond in 48h, resolve <7d, audit logged')">Submit case</button></div>
-<div class="card"><b>Early exit</b><p class="muted">Pre-start: full - fees (3d) • Mid-cycle no payout: net (7d) • After payout: blocked</p><button class="btn sec" onclick="alert('Exit queued — rule check + source-account refund')">Request exit</button></div>
+<div class="card"><b>Boniface • 0803… • KYC-LITE ✓</b><div class="muted">AJ-774821 • 2 groups • 🧕 Mama Bola: “I go show you how AJOCREDIT work.”</div><input value="GTB •• 0123 (verified)"><select><option>Pidgin</option><option>English</option><option>Yoruba</option><option>Hausa</option><option>Igbo</option></select></div>
+<div class="card"><b>Bring Your Group — Earn Rewards</b><p class="muted">Move Your Ajo To AJOCREDIT, Get Bonuses. Code AJ-4821.</p><button class="btn sec" onclick="alert('Referral copied: AJ-4821')">Copy invite</button></div>
+<div class="card"><b>Dispute / Exit</b><select><option>No pay</option><option>Wrong amount</option><option>No payout</option></select><button class="btn sec" onclick="alert('Case #231 opened — 48h response, <7d resolve')">Submit case</button></div>
 </div>
 
 <div class="nav">
@@ -111,10 +124,12 @@ input,select{width:100%;padding:14px;font-size:16px;border-radius:8px;border:1px
 </div>
 </div>
 <script>
+let pg=false;const STR={greetEn:"🌞 Good Morning, Boniface — today your Ajo reputation is worth ₦250,000 in credit power.",greetPg:"🌞 Good Morning, Boniface — today your Ajo reputation worth ₦250,000 for loan."};
 function go(id,el){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));document.getElementById('s-'+id).classList.add('on');if(el){document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('on'));el.classList.add('on')}window.scrollTo(0,0)}
-function pay(){var b=document.getElementById('paybtn');b.disabled=true;b.innerText='Sending...';document.getElementById('fail').style.display='none';setTimeout(function(){document.getElementById('rcpt').style.display='block';b.innerText='Paid ✓';b.disabled=false},1200)}
+function pay(){var b=document.getElementById('paybtn');b.disabled=true;b.innerText='Sending...';document.getElementById('fail').style.display='none';setTimeout(function(){document.getElementById('rcpt').style.display='block';var p=document.getElementById('party');p.classList.add('on');setTimeout(()=>p.classList.remove('on'),1500);b.innerText='Paid ✓';b.disabled=false},1200)}
 function payFail(){document.getElementById('rcpt').style.display='none';document.getElementById('fail').style.display='block'}
-function createGroup(){var n=document.getElementById('gname').value||'My Ajo';document.getElementById('gmsg').innerHTML='Pot created! Share code <b>AJ-4821</b> [QR][WhatsApp][SMS] • Ledger opened • VA issuance queued';}
+function createGroup(){document.getElementById('gmsg').innerHTML='Your Ajo Group Don Ready! Code <b>AJ-4821</b> [QR][WhatsApp][SMS]';}
+function toggleLang(){pg=!pg;document.getElementById('langbtn').innerText=pg?'🇬🇧':'🇳🇬';document.getElementById('greet').innerText=pg?STR.greetPg:STR.greetEn;document.querySelectorAll('[data-en]').forEach(el=>{el.innerText=pg?el.dataset.pg:el.dataset.en});}
 document.querySelectorAll('.chips').forEach(function(c){c.addEventListener('click',function(e){if(e.target.classList.contains('chip')){c.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));e.target.classList.add('on')}})});
 </script>
 </body>
