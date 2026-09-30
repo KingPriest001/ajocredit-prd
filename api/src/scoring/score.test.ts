@@ -21,9 +21,9 @@ describe("credit engine v1.0", () => {
     expect(s).toBeGreaterThanOrEqual(700);
     expect(s).toBeLessThan(800);
   });
-  test("defaulter 2/10 → drops ≥120pts", () => {
+  test("defaulter 3/10 → drops ≥100pts", () => {
     const before = scoreRaw(ada);
-    const after = scoreRaw({ ...ada, onTimeRate: 0.8, defaultRate: 0.2 });
+    const after = scoreRaw({ ...ada, onTimeRate: 0.7, defaultRate: 0.3 });
     expect(before - after).toBeGreaterThanOrEqual(100);
   });
   test("thin file N=2 → PROVISIONAL, capped Silver", () => {

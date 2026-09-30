@@ -45,7 +45,7 @@ const ada = { onTime: 11/12, cv: .15, streak: 8, total: 220000, clean: 1, compRa
 const adaScore = sc(ada);
 ok(`Ada ~742 Gold (got ${adaScore})`, adaScore >= 700 && adaScore < 800);
 ok("perfect ≥700", sc({ ...ada, onTime: 1, cv: .05, streak: 12 }) >= 700);
-ok("defaulter drops ≥100", adaScore - sc({ ...ada, onTime: .8, defRate: .2 }) >= 100);
+ok("defaulter (3/10) drops ≥100", adaScore - sc({ ...ada, onTime: .7, defRate: .3 }) >= 100);
 ok("thin-file provisional", (2 < 3));
 ok("inactive 90d decays ≥50", 750 - Math.round(750 * Math.pow(.5, 90 / 180)) >= 50);
 

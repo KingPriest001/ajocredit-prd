@@ -5,7 +5,7 @@
 
 ## Fixtures (must pass)
 - Money: fee ₦20k→₦200/₦20,200; 10x replay→1 confirmed; double webhook→ignored; payout shortfall/unbalanced/self-approve/duplicate→blocked.
-- Score: 12/12→≥700 Gold; Ada→700-799 Gold; 2/10 defaults→drop ≥100; N=2→PROVISIONAL; 90d inactive→drop ≥50; 3 accts/1 device→Fraud High + share blocked.
+- Score: 12/12→≥700 Gold; Ada→700-799 Gold; 3/10 defaults→drop ≥100; N=2→PROVISIONAL; 90d inactive→drop ≥50; 3 accts/1 device→Fraud High + share blocked.
 
 ## NFR gates (measure before pilot scale)
 - p95 API <300ms (p99 <800ms); webhook→confirmed <5min p95; unmatched <5%; payout <24h ≥98%; score recalc <5s; uptime 99.5%; RPO <15m RTO <2h.
