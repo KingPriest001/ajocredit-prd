@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#111827">
+<meta name="description" content="AJOCREDIT — Turn Your Ajo Into Bank Credit. Community savings that build credit power.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
 <title>AJOCREDIT — Turn Your Ajo Into Bank Credit</title>
 <style>
 :root{--gold:#D4AF37;--black:#121212;--white:#fff;--green:#16A34A;--orange:#F97316;--cream:#FFFDF7;--mut:#6b6b6b}
@@ -40,7 +45,7 @@ img.hero-img{width:100%;max-height:320px;object-fit:cover;border-radius:16px;mar
 .gallery figcaption{font-size:13px;padding:8px 10px;color:var(--mut)}
 </style>
 </head>
-<body>
+<body onload="if('serviceWorker' in navigator&&location.protocol!=='file:'){navigator.serviceWorker.register('sw.js')}">
 <div class="banner">If Traditional Ajo Ends Today… Your AJOCREDIT Credit History Remains.<small>Current Credit Value: ₦850,000</small></div>
 <button class="lang" onclick="toggleLang()" id="langbtn">🇳🇬 Pidgin</button>
 <div class="hero"><div class="wrap">

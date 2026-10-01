@@ -1,0 +1,14 @@
+{
+  "name": "AJOCREDIT — Turn Your Ajo Into Bank Credit",
+  "short_name": "AJOCREDIT",
+  "description": "Community savings that build your credit power.",
+  "start_url": "./landing.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0B120E",
+  "theme_color": "#111827",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

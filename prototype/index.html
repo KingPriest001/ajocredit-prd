@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#111827">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
 <title>AJOCREDIT — App</title>
 <style>
 :root{--bg:#0B120E;--card:#15211B;--card2:#182820;--gold:#D9A441;--green:#1E7A4C;--txt:#F5F5F2;--mut:#9DB0A4;--success:#22C55E;--warn:#F59E0B;--err:#F87171;--radius:16px}
@@ -72,7 +76,7 @@ summary{font-weight:800;cursor:pointer}
 .est{font-size:11px;color:var(--mut)}
 </style>
 </head>
-<body>
+<body onload="if('serviceWorker' in navigator&&location.protocol!=='file:'){navigator.serviceWorker.register('sw.js')}">
 <div class="phone">
 <div class="live">If Traditional Ajo Ends Today… Your History Remains. Credit Value: ₦850,000 (ESTIMATED)</div>
 <div class="off" id="off">You dey offline — 2 actions go send later.</div>
