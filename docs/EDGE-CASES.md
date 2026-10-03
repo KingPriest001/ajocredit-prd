@@ -12,16 +12,16 @@ Anything marked OPEN needs a product decision — see `docs/ALIGNMENT-3DOCS.md`.
 ## 2. Short pot at due date → Policy A only (V1)
 - Payout HELD (`cycle = SHORT`), recipient sees live X-of-Y progress. No partial release without quorum.
 - Policy B (platform advances shortfall): OUT — lending activity, needs FCCPC/CBN path first.
-- Policy C (peer cover "Cover for Aunty Ngozi"): OPEN, V1.1 at earliest — opt-in, logged inter-member loan, never presented as closing group risk.
+- Policy C (peer cover "Cover for Aunty Ngozi"): **DECIDED 2026-10-03 — LATER, not V1/V1.1.** Deferred until post-pilot with counsel sign-off (creates inter-member loans with regulatory shading). Never presented as closing group risk.
 
 ## 3. Default ladder
 1. 1 late (past 48h grace): auto reminder (push+SMS/WhatsApp), −20 score (decays if not repeated).
 2. 3 lates in rolling 12 cycles: "at risk" flag to admin; member can't CREATE groups until resolved.
 3. Full default (silent 7 days / 3 reminders): admin marks `defaulted` → auto-opens "Member Default" dispute, −150, account frozen from joining/creating until resolved.
-4. Post-payout stop: immediate `defaulted`, no ladder. Penalty OPEN (recommended −300, needs Risk sign-off).
+4. Post-payout stop: immediate `defaulted`, no ladder. Penalty **−300 (decided 2026-10-03: 2× pre-payout, matches real exposure)**.
 
 ## 4. Exit & removal
-- Pre-payout exit: NO cash refund (contributions may have funded earlier payouts). Slot + remaining schedule transfer to a Replacement Member (admin-invited). None in 7 days (recommended) → short-handling + resequence prompt. All notified, audited.
+- Pre-payout exit: NO cash refund (contributions may have funded earlier payouts). Slot + remaining schedule transfer to a Replacement Member (admin-invited). None in 7 days (decided 2026-10-03) → short-handling + resequence prompt. All notified, audited.
 - Post-payout exit: treated as default (above), likely partner-collections referral (closest thing to unpaid debt).
 - Forced removal: same bifurcation + auto-dispute for independent review + stated reason + appeal. Admin can never remove unilaterally without a trail.
 

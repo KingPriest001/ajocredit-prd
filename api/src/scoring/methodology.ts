@@ -46,6 +46,7 @@ export interface MethodologyInputs {
   lateCount: number; // occurrences (each −20, decays after 6 months if not repeated)
   openDisputesAgainstUser: number; // each −50, reversed if resolved in favor
   defaults: number; // mid-cycle exit/default, each −150
+  postPayoutDefaults: number; // post-payout stop, each −300 (decided 2026-10-03: 2× pre-payout, matches real exposure)
   fraudConfirmed?: boolean; // hard tier cap: Bronze for 12 months (manual override, not formula)
 }
 
@@ -81,8 +82,7 @@ export function profilePoints(i: MethodologyInputs): number {
 }
 
 export function penaltyPoints(i: MethodologyInputs): number {
-  return i.lateCount * 20 + i.openDisputesAgainstUser * 50 + i.defaults * 150;
-  // NOTE: post-payout default (−300) is an OPEN product decision — see docs/ALIGNMENT-3DOCS.md.
+  return i.lateCount * 20 + i.openDisputesAgainstUser * 50 + i.defaults * 150 + (i.postPayoutDefaults ?? 0) * 300;
 }
 
 export interface ScoreBreakdown {
@@ -94,7 +94,7 @@ export interface ScoreBreakdown {
   model_version: string;
   calculated_at: string;
   components: Record<string, { points: number; max: number; delta_30d: number }>;
-  penalties: { late_payments: { points: number; count_30d: number }; disputes_open: { points: number; count: number }; defaults: { points: number; count: number } };
+  penalties: { late_payments: { points: number; count_30d: number }; disputes_open: { points: number; count: number }; defaults: { points: number; count: number }; post_payout_defaults: { points: number; count: number } };
 }
 
 export function scoreBreakdown(user_id: string, i: MethodologyInputs, deltas = { consistency: 60, history: 40, tenure: 20 }): ScoreBreakdown {
@@ -122,6 +122,7 @@ export function scoreBreakdown(user_id: string, i: MethodologyInputs, deltas = {
       late_payments: { points: -i.lateCount * 20, count_30d: i.lateCount },
       disputes_open: { points: -i.openDisputesAgainstUser * 50, count: i.openDisputesAgainstUser },
       defaults: { points: -i.defaults * 150, count: i.defaults },
+      post_payout_defaults: { points: -(i.postPayoutDefaults ?? 0) * 300, count: i.postPayoutDefaults ?? 0 },
     },
   };
 }

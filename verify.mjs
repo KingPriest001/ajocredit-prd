@@ -55,6 +55,8 @@ ok("fraud → Bronze cap (manual override)", tierFor(950) === "Platinum"); // ca
 // --- fraud separate ---
 const fraud = (s) => { let p = 0; if (s.accts >= 3) p += 3; if (s.reuse >= 5) p += 2; if (s.anom) p += 1; return p >= 3 ? "High" : p >= 1 ? "Medium" : "Low"; };
 ok("sibyl→High + share blocked", fraud({ accts: 3, reuse: 6, anom: true }) === "High");
+const pen = (o) => o.late * 20 + o.disp * 50 + o.def * 150 + (o.post || 0) * 300;
+ok("post-payout −300 (2× pre-payout −150)", pen({ late: 0, disp: 0, def: 0, post: 1 }) === 300 && pen({ late: 0, disp: 0, def: 0, post: 1 }) - pen({ late: 0, disp: 0, def: 1, post: 0 }) === 150);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

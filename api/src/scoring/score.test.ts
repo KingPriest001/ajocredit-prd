@@ -9,7 +9,7 @@ const ada: MethodologyInputs = {
   completedCycles: 12, cumulativeNaira: 220000, monthsOnPlatform: 4,
   distinctGroupsCompleted: 1, peerEndorsements: 4,
   phoneVerified: true, dobAdded: true, selfieDone: true, bvnOrNinLinked: false,
-  lateCount: 1, openDisputesAgainstUser: 0, defaults: 0,
+  lateCount: 1, openDisputesAgainstUser: 0, defaults: 0, postPayoutDefaults: 0,
 };
 
 describe("methodology v1 (additive, max 1000)", () => {
@@ -39,12 +39,18 @@ describe("methodology v1 (additive, max 1000)", () => {
     const hit = scoreBreakdown("AJ-x", { ...ada, lateCount: 1, openDisputesAgainstUser: 1, defaults: 1 });
     expect(clean.score - hit.score).toBe(20 + 50 + 150);
   });
+  test("post-payout stop → −300 each (decided: 2× pre-payout)", () => {
+    const pre = scoreBreakdown("AJ-x", { ...ada, lateCount: 0, defaults: 1 });
+    const post = scoreBreakdown("AJ-x", { ...ada, lateCount: 0, defaults: 0, postPayoutDefaults: 1 });
+    expect(pre.score - post.score).toBe(150);
+    expect(post.penalties.post_payout_defaults.points).toBe(-300);
+  });
   test("cold start → 250 low Bronze, never negative", () => {
     const b = scoreBreakdown("AJ-new", {
       onTimePayments: 0, totalDuePayments: 0, completedCycles: 0, cumulativeNaira: 0,
       monthsOnPlatform: 0, distinctGroupsCompleted: 0, peerEndorsements: 0,
       phoneVerified: true, dobAdded: false, selfieDone: false, bvnOrNinLinked: false,
-      lateCount: 0, openDisputesAgainstUser: 0, defaults: 0,
+      lateCount: 0, openDisputesAgainstUser: 0, defaults: 0, postPayoutDefaults: 0,
     });
     expect(b.score).toBe(250);
     expect(b.tier).toBe("Bronze");

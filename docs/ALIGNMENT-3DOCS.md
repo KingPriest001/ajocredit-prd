@@ -23,9 +23,9 @@ Source docs (PDFs, pasted in chat): **Credit Scoring Methodology v1** · **Regul
 6. Cold start: 250 baseline over our PROVISIONAL-cap-Silver. ✅ adopted (250 = low Bronze; provisional concept retired).
 
 ## OPEN product decisions (need YOU + Risk/Legal — not engineering)
-1. Post-payout default penalty: −300 (recommended) or other? (methodology §4.2 + spec §4.2)
-2. Peer-cover (Policy C): build in V1.1, later, or never?
-3. Replacement-member window: 7 days (recommended) confirmed?
+1. Post-payout default penalty: **DECIDED 2026-10-03 — −300 (2× pre-payout −150).** Matches the real exposure (money taken, side unfinished). In `methodology.ts`, tests, `verify.mjs`, prototype exit screen, EDGE-CASES.
+2. Peer-cover (Policy C): **DECIDED 2026-10-03 — LATER, not V1/V1.1.** Revisit post-pilot with counsel (inter-member loans carry regulatory shading). Never presented as closing group risk.
+3. Replacement-member window: **DECIDED 2026-10-03 — 7 days confirmed.** Matches refund-SLA rhythm; in EDGE-CASES + prototype exit screen.
 4. Tier ₦ ceilings: **DECIDED 2026-10-03 — B now, A pre-scale.** Placeholders stay in V1 UI with honest "ESTIMATED illustrative value" labels (shipped); formula-vs-mock variance (≈₦559,600 vs ₦450,000 at 520) documented, not hidden. Risk/Finance to model real exposure limits and lock copy before pilot scale / before any lender sees a Passport. Owner: TBD (assign a name).
 5. Dispute/appeal SLA: **DECIDED 2026-10-03 — commit 24h ack + 5 business days standard, founder-owned at pilot.** Auto-ack is instant; human first response within 24h; standard resolution 5 business days; high-severity updates every 48h, no fixed close. Rationale: at 2–20 groups the founder IS support (WhatsApp Mon–Sat) — volume is low enough to honor personally, and the UI already promises exactly this. Review trigger: weekly caseload over 10, or any SLA breached twice in a month → assign dedicated support BEFORE passing 20 groups. No UI/code changes needed.
 6. Peer-endorsement gaming: accept cap-40 + monitoring, or tighten further?
