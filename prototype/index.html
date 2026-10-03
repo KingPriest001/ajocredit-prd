@@ -164,9 +164,27 @@ summary{font-weight:800;cursor:pointer}
 <div class="factor"><span>Contribution history</span><span class="ok">+40</span></div>
 <div class="factor"><span>Time on AjoCredit</span><span class="ok">+20</span></div>
 <div class="factor"><span>Late payments</span><span class="bad">-20</span></div>
-<div class="factor" style="border:0"><span>Disputes</span><span><b>0</b></span></div>
+<div class="factor" style="border:0"><span>Disputes</span><span><b>1 under review</b> <span class="pill">excluded</span></span></div>
 </div>
+<div class="card" style="border-color:var(--warn)"><div class="muted">⏳ 1 penalty <b>under review</b> — excluded from Credit Power until resolved (reversed if you're vindicated). <a href="#" onclick="go('disputes');return false" style="color:var(--gold)">Track case</a></div></div>
 <div class="card" style="border:1.5px solid var(--gold);text-align:center"><button class="btn green" onclick="go('account')">View Credit Passport</button></div>
+</div>
+
+<!-- DISPUTES -->
+<div class="screen" id="s-disputes">
+<div class="appbar" style="padding:0 0 8px"><button class="back" onclick="go('account')">‹</button><b>Disputes</b><span style="width:34px"></span></div>
+<div class="card"><div class="row"><div><b>Case #231 — Non-payment</b><div class="muted">Opened 2 days ago • Standard SLA: respond 24h, resolve 5 business days</div></div><span class="pill">Under Review</span></div>
+<div class="bar" style="margin-top:8px"><i style="width:60%;background:var(--warn)"></i></div>
+<div class="muted">Open → Triaged → <b>Under Review</b> → Resolved → Closed</div>
+<p class="note">Penalty −20 flagged <b>under review</b> — excluded from Credit Power until resolved.</p>
+<div class="row"><button class="btn sec" onclick="alert('Appeal opened — a different reviewer takes over')">Appeal</button></div></div>
+<div class="card"><b>Open a new dispute</b>
+<div class="chips" style="grid-template-columns:1fr"><span class="chip on">Non-payment (paid, not reflected)</span><span class="chip">Payout not received</span><span class="chip">Wrong amount</span><span class="chip">Fraud / impersonation ⚠ high severity</span><span class="chip">Admin misconduct ⚠ high severity</span><span class="chip">Score dispute</span></div>
+<input id="dref" placeholder="Transaction ID(s) — required, e.g. AJ-4821-C3-Ada">
+<input placeholder="What happened? (optional note)">
+<p class="note">System transaction records decide — screenshots support only, never override. Evidence ≤5 files, 10MB each. High-severity auto-escalates with updates every 48h.</p>
+<button class="btn" onclick="fileDispute()">Submit dispute</button>
+<p class="note" id="dmsg"></p></div>
 </div>
 
 <!-- ACCOUNT -->
@@ -178,7 +196,7 @@ summary{font-weight:800;cursor:pointer}
 <div class="card"><b>🏛 AJOCREDIT Passport</b><p class="muted">Your Community Credit Identity — power, history, trust, reputation.</p><div class="qr"></div><div style="text-align:center"><button class="btn green" onclick="alert('Passport shared with consent')">Share my Passport</button></div></div>
 <div class="card"><b>🧕 Mama Bola:</b> <span class="muted">“Welcome. I go show you how AJOCREDIT work.”</span></div>
 <div class="card"><b>Bring Your Group — Earn Rewards</b><p class="muted">Move Your Ajo To AJOCREDIT, Get Bonuses. AJ-4821.</p><button class="btn sec" onclick="alert('Referral copied')">Copy invite</button></div>
-<div class="card"><b>Help & disputes</b><button class="btn sec" onclick="alert('Case opened — 48h response')">Report an issue</button><button class="btn sec" onclick="alert('WhatsApp support Mon–Sat')">Chat support</button></div>
+<div class="card"><b>Help & disputes</b><div class="row"><span class="muted">1 case under review</span><button class="btn sec" onclick="go('disputes')">Open Disputes center</button></div><button class="btn sec" onclick="alert('WhatsApp support Mon–Sat 8am–8pm')">Chat support</button></div>
 <div class="photorow"><img src="photos/pro-office-man.jfif" alt="Professional"><img src="photos/pro-phone-woman.jfif" alt="Professional"><img src="photos/pro-phone-man.jfif" alt="Professional"></div>
 </div>
 
@@ -202,6 +220,7 @@ setTimeout(function(){paidSuccess('SIM-'+Date.now())},1200)}
 function wiz(n){for(let i=1;i<=5;i++){document.getElementById('w'+i).classList.remove('on')}document.getElementById('w'+n).classList.add('on');let bars=document.querySelectorAll('#wzb i');bars.forEach((b,i)=>{b.classList.toggle('on',i<Math.min(n,4))})}
 function gsize(d){var e=document.getElementById('gsize');var v=Math.min(30,Math.max(5,parseInt(e.innerText)+d));e.innerText=v}
 function createGroup(){document.getElementById('gmsg').innerHTML='Your Ajo group don set! Code <b>AJ-4821</b> — share with WhatsApp/SMS.';}
+function fileDispute(){var r=document.getElementById('dref').value.trim();if(!r){document.getElementById('dmsg').innerHTML='<b style=color:#F87171>Transaction ID required</b> — system records decide, so cite yours.';return}document.getElementById('dmsg').innerHTML='Case <b>#232 opened → Triaged</b>. Standard: response 24h, resolve 5 business days. Penalty flagged <b>under review</b>.';}
 function toggleLang(){pg=!pg;document.getElementById('langbtn').innerText=pg?'🇬🇧':'🇳🇬';document.getElementById('greet').innerText=pg?'Good afternoon':'Good afternoon';document.querySelectorAll('[data-en]').forEach(el=>{el.innerText=pg?el.dataset.pg:el.dataset.en});}
 document.querySelectorAll('.chips').forEach(function(c){c.addEventListener('click',function(e){if(e.target.classList.contains('chip')){c.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));e.target.classList.add('on')}})});
 </script>
