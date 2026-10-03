@@ -2,7 +2,8 @@
 
 - [ ] Partner safeguarded-account deed signed (holder, liability, refund SLA documented)
 - [ ] PSP live keys (Paystack/Flutterwave) + 2nd PSP failover tested
-- [ ] NDPA: consent logs, RoPA/DPIA, DPO contact, retention/deletion flow live; no BVN/NIN in V1
+- [ ] NDPA: DCPMI registration path decided (₦250k band), DPO/DPCO named, CAR owner, consent logs, RoPA/DPIA (incl. selfie/BVN DPIA), retention/deletion live; no BVN/NIN in V1
+- [ ] Passport sharing: confirmed in-app-only (gamified) OR bureau data-exchange signed (CRC/CreditRegistry/FirstCentral); no unlicensed bureau activity; underwriting model scoped separately
 - [ ] CBN/BOFIA memo: no deposit-taking/lending; fee disclosure pre-pay (₦20,000+₦200=₦20,200) + split receipt; penalty caps filed
 - [ ] Terms/privacy plain-English + Pidgin 1-pager published
 - [ ] PWA install guide + WhatsApp support number/hours live

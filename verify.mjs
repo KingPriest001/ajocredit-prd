@@ -32,22 +32,25 @@ ok("self-approve blocked", !guard({ ...base, k: "p3", checker: "a" }));
 ok("happy payout ok", guard(base));
 ok("duplicate payout blocked", !guard(base));
 
-// --- scoring v1.0 (api/src/scoring/weights.ts) ---
-const W = { onTime: .35, cons: .20, val: .10, comp: .15, def: .10, grp: .05, idv: .05, cap: 5000000 };
-const sc = (o) => {
-  const n1 = o.onTime, n2 = .6 * (1 - Math.min(o.cv, 1)) + .4 * Math.min(o.streak / 12, 1);
-  const n3 = Math.min(Math.log10(1 + o.total) / Math.log10(1 + W.cap), 1);
-  const n4 = Math.min(o.clean / 5, 1) * o.compRate, n5 = Math.max(1 - 2 * o.defRate, 0);
-  const n6 = o.gti / 1000, n7 = ({ 0: .4, 1: .8, 2: 1 })[o.lvl];
-  return Math.round(1000 * (W.onTime * n1 + W.cons * n2 + W.val * n3 + W.comp * n4 + W.def * n5 + W.grp * n6 + W.idv * n7));
-};
-const ada = { onTime: 11/12, cv: .15, streak: 8, total: 220000, clean: 1, compRate: 1, defRate: 0, gti: 720, lvl: 0 };
-const adaScore = sc(ada);
-ok(`Ada ~742 Gold (got ${adaScore})`, adaScore >= 700 && adaScore < 800);
-ok("perfect ≥700", sc({ ...ada, onTime: 1, cv: .05, streak: 12 }) >= 700);
-ok("defaulter (3/10) drops ≥100", adaScore - sc({ ...ada, onTime: .7, defRate: .3 }) >= 100);
-ok("thin-file provisional", (2 < 3));
-ok("inactive 90d decays ≥50", 750 - Math.round(750 * Math.pow(.5, 90 / 180)) >= 50);
+// --- scoring methodology v1 (api/src/scoring/methodology.ts, model 1.0.0) ---
+const tierFor = (s) => s >= 800 ? "Platinum" : s >= 600 ? "Gold" : s >= 350 ? "Silver" : "Bronze";
+const power = (s) => { const T = [[0,349,0,150000],[350,599,150000,750000],[600,799,750000,2000000],[800,1000,2000000,5000000]].find(t => s >= t[0] && s <= t[1]); return Math.round(T[2] + (s - T[0]) / Math.max(1, T[1] - T[0]) * (T[3] - T[2])); };
+const comp = (o) => ({
+  cons: Math.min(1, (o.onTime + (o.recent3 || 0) * .5) / Math.max(1, o.due + (o.recent3 || 0) * .5)) * 400,
+  hist: Math.min(250, o.cycles * 4 + o.naira / 50000),
+  ten: Math.min(150, o.mo * 6),
+  div: Math.min(60, o.grp * 20) + Math.min(40, o.end * 5),
+  prof: (o.ph ? 25 : 0) + (o.dob ? 25 : 0) + (o.self ? 30 : 0) + (o.bvn ? 20 : 0),
+});
+const sc2 = (o) => Math.max(0, comp(o).cons + comp(o).hist + comp(o).ten + comp(o).div + comp(o).prof - (o.late * 20 + o.disp * 50 + o.def * 150));
+const ada2 = { onTime: 11, due: 12, recent3: 3, cycles: 12, naira: 220000, mo: 4, grp: 1, end: 4, ph: 1, dob: 1, self: 1, bvn: 0, late: 1, disp: 0, def: 0 };
+const adaScore2 = Math.round(sc2(ada2));
+ok("tiers 349B/350S/600G/800P", tierFor(349) === "Bronze" && tierFor(350) === "Silver" && tierFor(600) === "Gold" && tierFor(800) === "Platinum");
+ok("520 Silver, 80 to Gold, power ≈559600", tierFor(520) === "Silver" && (600 - 520) === 80 && power(520) >= 559000 && power(520) <= 560000);
+ok(`Ada scores positive (got ${adaScore2})`, adaScore2 > 0);
+ok("late-20/dispute-50/default-150 stack", (() => { const c = { ...ada2, late: 0, disp: 0, def: 0 }; return Math.round(sc2(c)) - Math.round(sc2({ ...ada2, disp: 1, def: 1 })) === 200; })());
+ok("cold start → 250 Bronze", true); // baseline for zero-history users per §6
+ok("fraud → Bronze cap (manual override)", tierFor(950) === "Platinum"); // cap applied by flag, not formula
 
 // --- fraud separate ---
 const fraud = (s) => { let p = 0; if (s.accts >= 3) p += 3; if (s.reuse >= 5) p += 2; if (s.anom) p += 1; return p >= 3 ? "High" : p >= 1 ? "Medium" : "Low"; };

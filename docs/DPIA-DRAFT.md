@@ -8,5 +8,5 @@
 **Security:** TLS1.2+, AES-256-GCM PII (KMS), private S3 + presigned, role access (admin/member/viewer), audit_log immutable.
 **Transfers:** PSP/VA/SMS processors under DPA; no cross-border V1; NIBSS recon in-country.
 **Retention:** active + 24mo post-exit (regulatory), then anonymise. Backups PITR 30d, encrypted.
-**RoPA/DPO:** RoPA entry TODO (owner PM), DPO contact TODO, CAR filing via DPCO by 31 Mar if Major Importance — counsel to confirm.
+**RoPA/DPO:** Given nationwide 1M+ target + selfie/biometrics + BVN/NIN roadmap, plan to register as **Data Controller/Processor of Major Importance (DCPMI)** — fee band ₦250,000. Appoint DPO or engage licensed DPCO; file annual Compliance Audit Return (CAR). RoPA entry TODO (owner PM). Run a dedicated DPIA for selfie/liveness + BVN/NIN linkage (sensitive data). NDPC now in active enforcement (through 2026) — not a later item. Counsel to confirm pre-launch vs threshold timing + filing owner.
 **Risks:** SIM-swap account linkage; group admin sees member phones — mitigate with masked display + code invites; evidence over-collection — mitigate with 5-file cap + notice.

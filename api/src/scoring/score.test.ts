@@ -1,43 +1,57 @@
-// Score acceptance fixtures — mirrors PRD §4 + plan Phase 5.
+// Score acceptance fixtures — Credit Scoring Methodology v1 (model_version 1.0.0).
 // Run when Node installed: `npm test`.
-import { scoreRaw, scoreEffective, isProvisional, ScoreInputs } from "./weights";
+import { scoreBreakdown, creditPower, tierFor as tierForM, MethodologyInputs } from "./methodology";
 import { tierFor } from "./trust";
 import { fraudBand, passportShareBlocked } from "./fraud";
 
-const ada: ScoreInputs = {
-  onTimeRate: 11 / 12, cv: 0.15, streak: 8, totalSaved: 220000,
-  completedClean: 1, completionRate: 1, defaultRate: 0,
-  groupTrust: 720, idvLevel: 0, nDue: 12, tenureDays: 90, inactiveDays: 0,
+const ada: MethodologyInputs = {
+  onTimePayments: 11, totalDuePayments: 12, recent3OnTime: 3,
+  completedCycles: 12, cumulativeNaira: 220000, monthsOnPlatform: 4,
+  distinctGroupsCompleted: 1, peerEndorsements: 4,
+  phoneVerified: true, dobAdded: true, selfieDone: true, bvnOrNinLinked: false,
+  lateCount: 1, openDisputesAgainstUser: 0, defaults: 0,
 };
 
-describe("credit engine v1.0", () => {
-  test("perfect payer 12/12 → ≥700 Gold", () => {
-    const s = scoreRaw({ ...ada, onTimeRate: 1, cv: 0.05, streak: 12, defaultRate: 0 });
-    expect(s).toBeGreaterThanOrEqual(700);
-    expect(tierFor(s)).toBe("Gold");
+describe("methodology v1 (additive, max 1000)", () => {
+  test("tiers: 349 Bronze / 350 Silver / 600 Gold / 800 Platinum", () => {
+    expect(tierFor(349)).toBe("Bronze");
+    expect(tierFor(350)).toBe("Silver");
+    expect(tierForM(599)).toBe("Silver");
+    expect(tierFor(600)).toBe("Gold");
+    expect(tierFor(800)).toBe("Platinum");
   });
-  test("Ada example → ~742 Gold", () => {
-    const s = scoreRaw(ada);
-    expect(s).toBeGreaterThanOrEqual(700);
-    expect(s).toBeLessThan(800);
+  test("520 Silver → 80 pts to Gold; power ≈ ₦559,600", () => {
+    expect(tierFor(520)).toBe("Silver");
+    expect(600 - 520).toBe(80);
+    const p = creditPower(520);
+    expect(p).toBeGreaterThanOrEqual(559000);
+    expect(p).toBeLessThanOrEqual(560000);
   });
-  test("defaulter 3/10 → drops ≥100pts", () => {
-    const before = scoreRaw(ada);
-    const after = scoreRaw({ ...ada, onTimeRate: 0.7, defaultRate: 0.3 });
-    expect(before - after).toBeGreaterThanOrEqual(100);
+  test("Ada breakdown: score in Silver/Gold, deltas drive UI panel", () => {
+    const b = scoreBreakdown("AJ-774821", ada);
+    expect(b.model_version).toBe("1.0.0");
+    expect(b.score).toBeGreaterThan(0);
+    expect(b.components.payment_consistency.delta_30d).toBe(60);
+    expect(b.penalties.late_payments.points).toBe(-20);
   });
-  test("thin file N=2 → PROVISIONAL, capped Silver", () => {
-    const thin = { ...ada, nDue: 2, tenureDays: 10 };
-    expect(isProvisional(thin)).toBe(true);
+  test("late −20 each; open dispute −50; default −150", () => {
+    const clean = scoreBreakdown("AJ-x", { ...ada, lateCount: 0 });
+    const hit = scoreBreakdown("AJ-x", { ...ada, lateCount: 1, openDisputesAgainstUser: 1, defaults: 1 });
+    expect(clean.score - hit.score).toBe(20 + 50 + 150);
   });
-  test("inactive 90d ex-750 → decays 80..120+", () => {
-    const drop = 750 - scoreEffective(750, 90);
-    expect(drop).toBeGreaterThanOrEqual(50);
+  test("cold start → 250 low Bronze, never negative", () => {
+    const b = scoreBreakdown("AJ-new", {
+      onTimePayments: 0, totalDuePayments: 0, completedCycles: 0, cumulativeNaira: 0,
+      monthsOnPlatform: 0, distinctGroupsCompleted: 0, peerEndorsements: 0,
+      phoneVerified: true, dobAdded: false, selfieDone: false, bvnOrNinLinked: false,
+      lateCount: 0, openDisputesAgainstUser: 0, defaults: 0,
+    });
+    expect(b.score).toBe(250);
+    expect(b.tier).toBe("Bronze");
   });
-  test("sibyl 3 accts/1 device → Fraud High + share blocked, score untouched", () => {
-    const band = fraudBand({ accountsOnDevice: 3, deviceReuseCount: 6, simSwapLast30d: false, loginAnomaly: true, payoutVelocityPerDay: 1 });
-    expect(band).toBe("High");
-    expect(passportShareBlocked(band)).toBe(true);
-    expect(scoreRaw(ada)).toBeGreaterThan(0); // score independent
+  test("fraud confirmed → hard Bronze cap, passport share blocked", () => {
+    const b = scoreBreakdown("AJ-x", { ...ada, fraudConfirmed: true });
+    expect(b.tier).toBe("Bronze");
+    expect(passportShareBlocked(fraudBand({ accountsOnDevice: 3, deviceReuseCount: 6, simSwapLast30d: false, loginAnomaly: true, payoutVelocityPerDay: 1 }))).toBe(true);
   });
 });

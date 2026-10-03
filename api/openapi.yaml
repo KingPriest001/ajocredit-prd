@@ -168,7 +168,8 @@ paths:
         "200": { description: "score_history + Δpts" }
   /disputes:
     post:
-      summary: Submit dispute (≤5 files/10MB, 14d window) — US-11
+      summary: Submit dispute (6 categories + setup-objection, ≤5 files/10MB, 14d window) — US-11
+      description: States Open→Triaged→Under Review→Resolved→Closed (Escalated/Appeal branches). Standard SLA 24h/5d; high-severity 24h + 48h updates. System txn IDs authoritative. Open penalty excluded from Credit Power while under review.
       responses:
         "201": { description: "Case open, SLA <7d" }
     get:

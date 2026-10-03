@@ -15,9 +15,10 @@ export function groupTrust(o: { onTime: number; defaultRate: number; completionH
 }
 
 export function tierFor(score: number): "Bronze" | "Silver" | "Gold" | "Platinum" {
+  // Bands per Credit Scoring Methodology v1 §2: Bronze 0–349, Silver 350–599, Gold 600–799, Platinum 800–1000.
   if (score >= 800) return "Platinum";
   if (score >= 600) return "Gold";
-  if (score >= 400) return "Silver";
+  if (score >= 350) return "Silver";
   return "Bronze";
 }
 

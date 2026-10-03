@@ -6,13 +6,13 @@
 ## Daily 09:00 WAT triage (15 min)
 1. Open suspense queue (unmatched transfers) → match by VA+amount+ref <24h.
 2. Wrong amount → WhatsApp member: top-up or refund; never auto-confirm.
-3. Grace/penalty check (48h grace, late fee per rules) → reminders T-24/T-0.
+3. Grace/penalty check (48h grace default, late fee per rules) → reminders 3 days + 1 day before due (push + SMS).
 4. Payout batch check (10:00/15:00 cutoffs) → confirm balanced ledger before release.
 
 ## Money SLAs
 - Refunds: pre-start 3 days, mid-cycle 7 days, source-account only; failed → auto-reverse 1-3 days + ticket.
-- Payouts: <24h ≥98%; shortfall → cite rule, no partial without quorum; duplicate job → idempotency blocks.
-- Disputes: ack 24h, resolve <7d, evidence ≤5 files/10MB, reason code + audit.
+- Payouts: <24h ≥98%; shortfall → HOLD cycle (Policy A), live X-of-Y progress to recipient, no partial without quorum; duplicate job → idempotency blocks.
+- Disputes: ack 24h; Standard resolve 5 business days; High (fraud/funds) auto-escalated + updates every 48h. Evidence ≤5 files/10MB; system txn IDs authoritative (cite them); open penalty excluded from Credit Power while under review. Ghost-member flags + no-override rule per EDGE-CASES §7.
 
 ## Comms templates (EN + Pidgin)
 - Reminder: `Mama Nkechi, ₦20,000 due by 6pm. Fee ₦200. Pay to VA 9876… / *347*20000*AJ4821#`

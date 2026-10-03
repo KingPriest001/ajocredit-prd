@@ -2,13 +2,19 @@
 generator client { provider = "prisma-client-js" }
 datasource db { provider = "postgresql"; url = env("DATABASE_URL") }
 
+// Statuses per Functional Spec §1 (v1 Draft). Richer than the original PRD:
+// Member OBLIGATED = received payout, still owes future cycles; REMOVED = admin-removed (appealable).
+// Cycle SHORT = pot incomplete at due date → payout held (Policy A, V1 default).
+// Contribution PARTIAL (held, doesn't count to ready_for_payout) / WAIVED; FAILED is technical, never penalized.
+// Payout HELD; Dispute TRIAGED/APPEAL with senior re-review.
 enum VerificationLevel { NONE OTP KYC_LITE BVN NIN }
 enum GroupType { ROTATIONAL TARGET }
-enum GroupStatus { FORMING ACTIVE COMPLETED CANCELLED }
-enum MembershipStatus { PENDING ACTIVE EXITED DEFAULTED }
-enum CycleStatus { OPEN DUE COLLECTING PAYOUT_PENDING SETTLED }
-enum MoneyStatus { PENDING CONFIRMED FAILED REVERSED LATE DEFAULTED }
-enum DisputeStatus { OPEN RESOLVED DISMISSED }
+enum GroupStatus { FORMING ACTIVE COMPLETED CANCELLED DISSOLVED FROZEN }
+enum MembershipStatus { PENDING ACTIVE OBLIGATED EXITED REMOVED DEFAULTED }
+enum CycleStatus { OPEN DUE COLLECTING READY_FOR_PAYOUT PAYOUT_PENDING SHORT PAID_OUT SETTLED CLOSED }
+enum MoneyStatus { PENDING CONFIRMED FAILED REVERSED LATE PARTIAL WAIVED DEFAULTED }
+enum PayoutStatus { PENDING HELD RELEASED FAILED }
+enum DisputeStatus { OPEN TRIAGED UNDER_REVIEW RESOLVED ESCALATED APPEAL DISMISSED CLOSED }
 
 model User {
   id               String   @id @default(cuid())

@@ -70,7 +70,9 @@ Activation ≥60% join in 7d; ≥80% groups reach full; on-time ≥85% by due+gr
 
 ---
 
-## 4. Credit Engine — Formal Spec (weights v1.0)
+## 4. Credit Engine — Methodology v1 (model_version 1.0.0, canonical: `api/src/scoring/methodology.ts`)
+
+**Supersedes the earlier weights sketch below with the adopted Credit Scoring Methodology:** additive components (Consistency 400 + History 250 + Tenure 150 + Diversity/Trust 100 + Profile 100 = 1000) minus penalties (late −20, open dispute −50, default −150; post-payout default −300 OPEN). Tiers: Bronze 0–349 / Silver 350–599 / Gold 600–799 / Platinum 800–1000. Credit Power = linear interpolation within tier (520 → ≈₦559,600; UI ₦450,000 is a placeholder pending Risk). Cold start 250. "What moves your score" shows 30-day DELTAS. Score is gamified/user-facing only — never the underwriting artifact (separate model with Risk/Legal before any lending).
 
 **Dimensions:** Reliability (pay when due?) + Savings Behaviour (sustainably?) + Community Trust (in groups?).
 - `on_time_rate`, `default_rate`, `completion_rate`, `consistency = 1-CV(intervals)`, `streak_factor=min(streak/12,1)`, `total_saved/avg/tenure`, `group_trust_contrib`, `vouch_net`, `L={0:OTP,1:BVN,2:NIN}`.

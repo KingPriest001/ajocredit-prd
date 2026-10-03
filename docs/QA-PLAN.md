@@ -19,3 +19,14 @@ Scripts EN+Pidgin: T1 create <60s; T2 contribute + fee recall; T3 payout countdo
 
 ## Exit to Phase 6
 All fixtures green, 2 sandbox groups balanced, P0/P1 closed, counsel sign-off on DPIA/threat model.
+
+## Functional-Spec acceptance (from v1 Draft §10 — all must hold)
+- [ ] No double-charge on retry after failure (idempotency verified).
+- [ ] Cycle can't reach paid_out with any pending/partial/failed contribution (no V1 admin override).
+- [ ] Late inside grace → no score penalty; FAILED is technical, never penalized if retried in grace.
+- [ ] Disputed penalty excluded from live Credit Power while under_review.
+- [ ] Pre-payout exit → slot + obligations transfer to replacement member.
+- [ ] Post-payout stop → immediate defaulted, no grace ladder.
+- [ ] Offline-queued payment for closed cycle → redirected to next open cycle, notified.
+- [ ] <50% cycles done → admin alone cannot dissolve (majority required).
+- [ ] Every manual admin action on order/status writes a visible audit entry.
