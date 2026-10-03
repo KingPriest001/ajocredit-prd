@@ -115,6 +115,7 @@ summary{font-weight:800;cursor:pointer}
 <button onclick="alert('History')"><span>🕘</span>History</button>
 <button onclick="alert('Settings')"><span>⚙</span>Settings</button>
 </div>
+<div class="card"><div class="row"><div><b>Exit or remove a member?</b><div class="muted">Replacement, not cash refund, keeps the group alive.</div></div><button class="btn sec" onclick="go('exit')">Start</button></div></div>
 <button class="btn green" onclick="go('pay')">Contribute Now</button>
 <p></p>
 <div class="card"><div class="row"><b>Create Group Flow (Wizard)</b><span class="muted">~1 min</span></div>
@@ -170,6 +171,18 @@ summary{font-weight:800;cursor:pointer}
 <div class="card" style="border:1.5px solid var(--gold);text-align:center"><button class="btn green" onclick="go('account')">View Credit Passport</button></div>
 </div>
 
+<!-- EXIT -->
+<div class="screen" id="s-exit">
+<div class="appbar" style="padding:0 0 8px"><button class="back" onclick="go('groups')">‹</button><b>Exit group</b><span style="width:34px"></span></div>
+<div class="card"><b>Which describes you?</b>
+<div class="method on" id="xp" onclick="exitPath('pre')">📥 <div style="flex:1"><b>Pre-payout exit</b><div class="muted">You never collect your turn yet (slot #7)</div></div><span class="radio"></span></div>
+<div class="method" id="xq" onclick="exitPath('post')">📤 <div style="flex:1"><b>Post-payout exit</b><div class="muted">You don collect already — still obligated</div></div><span class="radio"></span></div></div>
+<div class="card" id="xpre"><b>How pre-payout exit works</b><p class="muted">No cash refund — your contributions may have funded an earlier payout. Instead your <b>slot + remaining schedule transfer to a replacement member</b> your admin invites.</p><input id="xname" placeholder="Replacement name"><input id="xphone" placeholder="Replacement phone"><p class="note">7-day window to find them — else the slot enters short-handling and the admin resequences. Everyone is notified, fully logged.</p><button class="btn" onclick="exitDo()">Invite replacement</button><p class="note" id="xmsg"></p></div>
+<div class="card" id="xpost" style="display:none;border-color:var(--err)"><b class="bad">⚠ Post-payout exit = immediate default</b><p class="muted">No grace ladder — you took group money without finishing your side. Harsher score penalty (proposed −300, pending Risk), account frozen, possible referral to the licensed partner's collections.</p><button class="btn sec" onclick="alert('Exit recorded as defaulted. Dispute auto-opened for review.')">I understand — record my exit</button></div>
+<div class="card"><b>Forced removal (admin)</b><p class="muted">Same rules + auto-dispute for independent review, stated reason, and appeal path. No silent removals.</p></div>
+<div class="card"><b>Dissolve group?</b><p class="muted">Over 50% cycles done: admin may dissolve with notice (unpaid members refunded pro-rata). Under 50%: majority must agree. Fraud: platform freezes, per-member review.</p></div>
+</div>
+
 <!-- DISPUTES -->
 <div class="screen" id="s-disputes">
 <div class="appbar" style="padding:0 0 8px"><button class="back" onclick="go('account')">‹</button><b>Disputes</b><span style="width:34px"></span></div>
@@ -220,6 +233,8 @@ setTimeout(function(){paidSuccess('SIM-'+Date.now())},1200)}
 function wiz(n){for(let i=1;i<=5;i++){document.getElementById('w'+i).classList.remove('on')}document.getElementById('w'+n).classList.add('on');let bars=document.querySelectorAll('#wzb i');bars.forEach((b,i)=>{b.classList.toggle('on',i<Math.min(n,4))})}
 function gsize(d){var e=document.getElementById('gsize');var v=Math.min(30,Math.max(5,parseInt(e.innerText)+d));e.innerText=v}
 function createGroup(){document.getElementById('gmsg').innerHTML='Your Ajo group don set! Code <b>AJ-4821</b> — share with WhatsApp/SMS.';}
+function exitPath(p){document.getElementById('xp').classList.toggle('on',p==='pre');document.getElementById('xq').classList.toggle('on',p==='post');document.getElementById('xpre').style.display=p==='pre'?'block':'none';document.getElementById('xpost').style.display=p==='post'?'block':'none'}
+function exitDo(){var n=document.getElementById('xname').value.trim(),t=document.getElementById('xphone').value.trim();if(!n||!t){document.getElementById('xmsg').innerHTML='<b style=color:#F87171>Add replacement name + phone</b>';return}document.getElementById('xmsg').innerHTML='<b>'+n+'</b> invited. Slot #7 + remaining schedule transfer when they join. 7-day window, all members notified.';}
 function fileDispute(){var r=document.getElementById('dref').value.trim();if(!r){document.getElementById('dmsg').innerHTML='<b style=color:#F87171>Transaction ID required</b> — system records decide, so cite yours.';return}document.getElementById('dmsg').innerHTML='Case <b>#232 opened → Triaged</b>. Standard: response 24h, resolve 5 business days. Penalty flagged <b>under review</b>.';}
 function toggleLang(){pg=!pg;document.getElementById('langbtn').innerText=pg?'🇬🇧':'🇳🇬';document.getElementById('greet').innerText=pg?'Good afternoon':'Good afternoon';document.querySelectorAll('[data-en]').forEach(el=>{el.innerText=pg?el.dataset.pg:el.dataset.en});}
 document.querySelectorAll('.chips').forEach(function(c){c.addEventListener('click',function(e){if(e.target.classList.contains('chip')){c.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));e.target.classList.add('on')}})});
