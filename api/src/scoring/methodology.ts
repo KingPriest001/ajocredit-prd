@@ -72,6 +72,8 @@ export function tenurePoints(i: MethodologyInputs): number {
 }
 
 // 4.4 Group Diversity & Social Trust (max 100; endorsements are confirmations, not reviews)
+// Anti-gaming (decided): one endorsement per member-pair per completed cycle; circular
+// pairs (A↔B) count 20%; >5 endorsements to one user in 7 days → manual review before posting.
 export function diversityPoints(i: MethodologyInputs): number {
   return Math.min(60, i.distinctGroupsCompleted * 20) + Math.min(40, i.peerEndorsements * 5);
 }

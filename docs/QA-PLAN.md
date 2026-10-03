@@ -30,3 +30,4 @@ All fixtures green, 2 sandbox groups balanced, P0/P1 closed, counsel sign-off on
 - [ ] Offline-queued payment for closed cycle → redirected to next open cycle, notified.
 - [ ] <50% cycles done → admin alone cannot dissolve (majority required).
 - [ ] Every manual admin action on order/status writes a visible audit entry.
+- [ ] Weekly endorsement-graph review (Fridays): one-per-pair-per-cycle enforced, circular pairs at 20%, velocity tripwire (>5/user/7d) cleared before points post.
