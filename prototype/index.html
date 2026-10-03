@@ -124,7 +124,7 @@ summary{font-weight:800;cursor:pointer}
 <div class="step" id="w2"><p class="muted">Step 2 of 4</p><p><b>How much will members contribute?</b></p><div class="chips"><span class="chip">₦1,000</span><span class="chip">₦2,000</span><span class="chip on">₦5,000</span><span class="chip">₦10,000</span></div><input placeholder="Custom Amount"><button class="btn green" onclick="wiz(3)">Next</button></div>
 <div class="step" id="w3"><p class="muted">Step 3 of 4</p><p><b>How often?</b></p><div class="chips"><span class="chip on">Weekly ✓</span><span class="chip">Monthly</span><span class="chip">Daily</span></div><button class="btn green" onclick="wiz(4)">Next</button></div>
 <div class="step" id="w4"><p class="muted">Step 4 of 4</p><p><b>How many members?</b></p><div class="row" style="justify-content:center;gap:20px"><button class="toggle" onclick="gsize(-1)">−</button><b id="gsize" style="font-size:30px">20</b><button class="toggle" onclick="gsize(1)">+</button></div><button class="btn green" onclick="wiz(5)">Next</button></div>
-<div class="step" id="w5"><p><b>Review your group details ✓</b></p><div class="muted" style="text-align:left">Group Name: Aunty Bola Traders<br>Amount: ₦5,000<br>Frequency: Weekly<br>Members: 20<br>Start Date: May 26, 2026</div><button class="btn" onclick="createGroup()">Create Group</button><p class="note" id="gmsg"></p></div>
+<div class="step" id="w5"><p><b>Review your group details ✓</b></p><div class="muted" style="text-align:left">Group Name: Aunty Bola Traders<br>Amount: ₦5,000<br>Frequency: Weekly<br>Members: 20<br>Start Date: May 26, 2026</div><div class="left" style="text-align:left"><p class="muted"><b>Payout order (default: Random draw)</b></p><div class="chips"><span class="chip on">Random draw</span><span class="chip">Admin-assigned</span><span class="chip">Voting</span></div><p class="note">Random uses an auditable seed, shown to all. Admin choice stays visible pre-activation with a 24h objection window. No bid-jumping in V1.</p></div><button class="btn" onclick="createGroup()">Create Group</button><p class="note" id="gmsg"></p></div>
 <div class="reassure"><div>⏱ Quick & Easy — Takes less than 1 minute</div><div>🛡 Secure — Your money is protected</div><div>👁 Transparent — No hidden charges</div><div>📈 Build Credit — Every payment counts</div></div>
 </div>
 </div>
@@ -159,6 +159,7 @@ summary{font-weight:800;cursor:pointer}
 <div class="money">₦750,000 <span class="muted" style="font-size:12px">at Silver</span></div>
 <div class="est">ESTIMATED — not a loan guarantee</div>
 </div>
+<div class="card"><div class="muted">New here? Everyone starts at <b>250 (low Bronze)</b> — built from your profile alone, never punished for no history. Your first 2–3 on-time payments lift you visibly.</div></div>
 <div class="muted"><b style="color:var(--txt)">What moves your score</b></div>
 <div class="card">
 <div class="factor"><span>Payment consistency</span><span class="ok">+60</span></div>
