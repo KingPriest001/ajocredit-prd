@@ -26,7 +26,7 @@ Source docs (PDFs, pasted in chat): **Credit Scoring Methodology v1** · **Regul
 1. Post-payout default penalty: −300 (recommended) or other? (methodology §4.2 + spec §4.2)
 2. Peer-cover (Policy C): build in V1.1, later, or never?
 3. Replacement-member window: 7 days (recommended) confirmed?
-4. Tier ₦ ceilings: design placeholders or Finance-modeled exposure limits? Owner before launch copy locks.
+4. Tier ₦ ceilings: **DECIDED 2026-10-03 — B now, A pre-scale.** Placeholders stay in V1 UI with honest "ESTIMATED illustrative value" labels (shipped); formula-vs-mock variance (≈₦559,600 vs ₦450,000 at 520) documented, not hidden. Risk/Finance to model real exposure limits and lock copy before pilot scale / before any lender sees a Passport. Owner: TBD (assign a name).
 5. Dispute/appeal SLA: can support commit to 24h/5 business days?
 6. Peer-endorsement gaming: accept cap-40 + monitoring, or tighten further?
 7. Loan-trigger threshold/owner: at what tier/score is a real loan offered, and who owns it?
