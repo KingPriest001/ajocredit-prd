@@ -30,6 +30,6 @@ Source docs (PDFs, pasted in chat): **Credit Scoring Methodology v1** · **Regul
 5. Dispute/appeal SLA: can support commit to 24h/5 business days?
 6. Peer-endorsement gaming: accept cap-40 + monitoring, or tighten further?
 7. Loan-trigger threshold/owner: at what tier/score is a real loan offered, and who owns it?
-8. BVN/NIN at launch: mandatory or optional? (affects scoring + KYC posture)
+8. BVN/NIN at launch: **DECIDED 2026-10-03 — OPTIONAL in V1, mandatory track in V2.** V1 stays KYC-lite (phone+DOB+selfie); profile maxes at 80/100 until BVN/NIN arrives via licensed partner (methodology already prices it at +20, no formula change). Rationale: mandatory BVN adds pilot friction for market women AND triggers CBN 2026 BVN-framework obligations, sensitive-data DPIA scope, and partner-AML alignment — all still counsel-gated. V2 gate: partner signed + counsel clears framework, then flip to required for Silver+ advancement.
 9. Bureau agreement: which bureau (CRC / CreditRegistry / FirstCentral) for Passport verification?
 10. DCPMI filing: pre-launch now, or at a user-count threshold — who files?
