@@ -1,0 +1,15 @@
+# AJOCREDIT — Netlify config (static PWA, no build step)
+[build]
+  publish = "prototype"
+
+# Landing page on bare domain (app stays at /index.html)
+[[redirects]]
+  from = "/"
+  to = "/landing.html"
+  status = 200
+
+# Service worker must never be stale-cached (else updates never reach phones)
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
