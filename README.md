@@ -2,6 +2,7 @@
 
 Turn Your Ajo Into Bank Credit.
 
+**Live:** https://ajocredit.netlify.app/ (landing) · https://ajocredit.netlify.app/index.html (app) · backup: https://kingpriest001.github.io/ajocredit-prd/landing.html
 **Repo:** https://github.com/KingPriest001/ajocredit-prd
 **Docs:**
 - `AJOCREDIT-PRD-Refined.md` — V2 PRD (weights v1.0)
