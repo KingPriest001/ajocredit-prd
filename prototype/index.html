@@ -74,6 +74,10 @@ img.avatar{width:52px;height:52px;object-fit:cover;border-radius:50%}
 details{background:var(--card);border-radius:12px;padding:12px;margin-bottom:12px}
 summary{font-weight:800;cursor:pointer}
 .est{font-size:11px;color:var(--mut)}
+.tiers4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0}.tiers4 div{background:#0f2117;border:1px solid #2c3f33;border-radius:10px;padding:10px 4px;text-align:center;font-size:11px;color:var(--mut)}.tiers4 div.hit{border-color:var(--gold);color:var(--txt);background:#1a2b1f;font-weight:800}.tiers4 small{display:block;font-size:10px}
+.onboard{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;z-index:50;align-items:center;justify-content:center;padding:24px}.onboard.on{display:flex}.obcard{background:var(--card);border-radius:20px;padding:28px 22px;max-width:320px;width:100%;text-align:center}.obcard .em{font-size:48px}.obdots{color:var(--gold);letter-spacing:4px;margin:12px 0}
+.passport{background:linear-gradient(135deg,#C9932B,#8a6414);border-radius:var(--radius);padding:18px;color:#fff}
+.dot{display:inline-block;min-width:18px;height:18px;border-radius:99px;background:var(--err);color:#fff;font-size:11px;font-weight:800;text-align:center;line-height:18px}
 </style>
 </head>
 <body onload="if('serviceWorker' in navigator&&location.protocol!=='file:'){navigator.serviceWorker.register('sw.js')}">
@@ -83,11 +87,11 @@ summary{font-weight:800;cursor:pointer}
 
 <!-- HOME -->
 <div class="screen on" id="s-home">
-<div class="appbar" style="padding:4px 0 0"><button class="back" onclick="alert('Menu')">☰</button><div style="flex:1"></div><button class="toggle" onclick="toggleLang()" id="langbtn">🇳🇬</button>&nbsp;<button class="toggle" onclick="document.getElementById('off').classList.toggle('on')">🔔³</button>&nbsp;<img class="avatar" src="photos/trader-hero.jfif" alt="AB"></div>
+<div class="appbar" style="padding:4px 0 0"><button class="back" onclick="alert('Menu')">☰</button><div style="flex:1"></div><button class="toggle" onclick="toggleLang()" id="langbtn">🇳🇬</button>&nbsp;<button class="toggle" onclick="go('notif')">🔔<span class="dot">3</span></button>&nbsp;<img class="avatar" src="photos/trader-hero.jfif" alt="AB"></div>
 <div class="greet" id="greet">Good afternoon</div>
 <h2 class="name">Aunty Bola</h2>
-<div class="hero"><div class="muted" style="color:#d6e5da">Your next contribution</div><div class="row"><span class="amt">₦5,000</span><span style="text-align:right;font-size:13px"><b>3 days left</b><br><span style="opacity:.8">Due May 25</span></span></div><button class="goldbtn" onclick="go('pay')">Contribute now</button></div>
-<div class="card"><div class="muted">Credit power</div><div class="row"><span class="money">₦450,000</span><b style="font-size:22px">520</b></div><div class="est">ESTIMATED illustrative value — not a loan guarantee</div><div class="row" style="margin-top:6px"><span class="pill" style="background:#3a2a10">↑ ₦25,000 this month</span><span class="muted">Silver · 80 pts to Gold</span></div></div>
+<div class="hero"><div class="muted" style="color:#d6e5da">💰 Credit Power</div><div class="amt">₦450,000</div><div class="est" style="color:#e8f0e9">ESTIMATED illustrative value — not a loan guarantee</div><div class="row" style="margin-top:6px"><span class="stars" style="color:#fff">★★★★★</span><b>Strong</b></div><div class="row" style="margin-top:8px"><span style="font-size:14px">Next Contribution: <b>₦5,000 • 3 Days Left</b></span></div><button class="goldbtn" onclick="go('pay')">Contribute Now</button></div>
+<div class="card"><div class="row"><span class="muted">Your next contribution</span><span class="muted">Due May 25</span></div><div class="tiers4"><div>🥉<br>Bronze<small>0–349</small></div><div class="hit">🥈<br>Silver<small>350–599 ● you</small></div><div>🥇<br>Gold<small>600–799</small></div><div>💎<br>Platinum<small>800+</small></div></div><div class="muted">520 · 80 points to Gold · ↑ ₦25,000 this month</div></div>
 <div class="row"><b>Quick actions</b></div>
 <div class="qgrid">
 <button onclick="go('pay')"><span>💸</span>Contribute</button>
@@ -108,6 +112,7 @@ summary{font-weight:800;cursor:pointer}
 <div class="card"><div class="stack"><span class="initials" style="background:#7C3AED">TO</span><span class="initials" style="background:#2563EB">CA</span><span class="initials" style="background:#9333EA">FN</span><span class="initials" style="background:#1E7A4C">+17</span><span class="muted" style="margin-left:auto">5 still to pay</span></div></div>
 <div class="card"><div class="muted">Next payout</div><div class="row"><span><b>Aunty Ngozi · 2 days 4 hrs</b></span><b>₦100,000</b></div></div>
 <div class="card"><div class="row"><svg class="ring" viewBox="0 0 52 52"><circle cx="26" cy="26" r="22" fill="none" stroke="#2c3f33" stroke-width="5"/><circle cx="26" cy="26" r="22" fill="none" stroke="#D9A441" stroke-width="5" stroke-dasharray="127 138" stroke-linecap="round" transform="rotate(-90 26 26)"/><text x="26" y="30" text-anchor="middle" font-size="12" font-weight="800" fill="#F5F5F2">92%</text></svg><div style="flex:1"><b>Gold trust level</b><div class="muted">High payment consistency and low disputes</div></div></div></div>
+<div class="card"><div class="row"><div><b>Group Health</b><div class="muted">Bodija Weekly at a glance</div></div><b style="font-size:24px;color:var(--success)">92%</b></div><div class="bar"><i class="g" style="width:92%"></i></div><div class="row" style="margin-top:8px"><span class="muted">Paid 15/20</span><span class="warn">Late 2</span><span class="muted">Disputes 1</span><span class="ok">Gold</span></div></div>
 <div class="muted"><b style="color:var(--txt)">Manage</b></div>
 <div class="qgrid">
 <button onclick="alert('20 members')"><span>👥</span>Members</button>
@@ -124,7 +129,7 @@ summary{font-weight:800;cursor:pointer}
 <div class="step" id="w2"><p class="muted">Step 2 of 4</p><p><b>How much will members contribute?</b></p><div class="chips"><span class="chip">₦1,000</span><span class="chip">₦2,000</span><span class="chip on">₦5,000</span><span class="chip">₦10,000</span></div><input placeholder="Custom Amount"><button class="btn green" onclick="wiz(3)">Next</button></div>
 <div class="step" id="w3"><p class="muted">Step 3 of 4</p><p><b>How often?</b></p><div class="chips"><span class="chip on">Weekly ✓</span><span class="chip">Monthly</span><span class="chip">Daily</span></div><button class="btn green" onclick="wiz(4)">Next</button></div>
 <div class="step" id="w4"><p class="muted">Step 4 of 4</p><p><b>How many members?</b></p><div class="row" style="justify-content:center;gap:20px"><button class="toggle" onclick="gsize(-1)">−</button><b id="gsize" style="font-size:30px">20</b><button class="toggle" onclick="gsize(1)">+</button></div><button class="btn green" onclick="wiz(5)">Next</button></div>
-<div class="step" id="w5"><p><b>Review your group details ✓</b></p><div class="muted" style="text-align:left">Group Name: Aunty Bola Traders<br>Amount: ₦5,000<br>Frequency: Weekly<br>Members: 20<br>Start Date: May 26, 2026</div><div class="left" style="text-align:left"><p class="muted"><b>Payout order (default: Random draw)</b></p><div class="chips"><span class="chip on">Random draw</span><span class="chip">Admin-assigned</span><span class="chip">Voting</span></div><p class="note">Random uses an auditable seed, shown to all. Admin choice stays visible pre-activation with a 24h objection window. No bid-jumping in V1.</p></div><button class="btn" onclick="createGroup()">Create Group</button><p class="note" id="gmsg"></p></div>
+<div class="step" id="w5"><p><b>Review your group details ✓</b></p><div class="muted" style="text-align:left">Group Name: Aunty Bola Traders<br>Amount: ₦5,000<br>Frequency: Weekly<br>Members: 20<br>Start Date: May 26, 2026</div><div class="left" style="text-align:left"><p class="muted"><b>Payout order (default: Random draw)</b></p><div class="chips"><span class="chip on">Random draw</span><span class="chip">Admin-assigned</span><span class="chip">Voting</span></div><p class="note">Everyone can see the payout order before the group starts.</p><details><summary class="note">Learn more</summary><p class="note">Random draw uses a recorded system shuffle. If the admin sets the order, members get 24 hours to object. Positions can't be jumped by bidding in V1.</p></details></div><button class="btn" onclick="createGroup()">Create Group</button><p class="note" id="gmsg"></p></div>
 <div class="reassure"><div>⏱ Quick & Easy — Takes less than 1 minute</div><div>🛡 Secure — Your money is protected</div><div>👁 Transparent — No hidden charges</div><div>📈 Build Credit — Every payment counts</div></div>
 </div>
 </div>
@@ -178,10 +183,19 @@ summary{font-weight:800;cursor:pointer}
 <div class="card"><b>Which describes you?</b>
 <div class="method on" id="xp" onclick="exitPath('pre')">📥 <div style="flex:1"><b>Pre-payout exit</b><div class="muted">You never collect your turn yet (slot #7)</div></div><span class="radio"></span></div>
 <div class="method" id="xq" onclick="exitPath('post')">📤 <div style="flex:1"><b>Post-payout exit</b><div class="muted">You don collect already — still obligated</div></div><span class="radio"></span></div></div>
-<div class="card" id="xpre"><b>How pre-payout exit works</b><p class="muted">No cash refund — your contributions may have funded an earlier payout. Instead your <b>slot + remaining schedule transfer to a replacement member</b> your admin invites.</p><input id="xname" placeholder="Replacement name"><input id="xphone" placeholder="Replacement phone"><p class="note">7-day window to find them — else the slot enters short-handling and the admin resequences. Everyone is notified, fully logged.</p><button class="btn" onclick="exitDo()">Invite replacement</button><p class="note" id="xmsg"></p></div>
-<div class="card" id="xpost" style="display:none;border-color:var(--err)"><b class="bad">⚠ Post-payout exit = immediate default</b><p class="muted">No grace ladder — you took group money without finishing your side. Harsher score penalty −300, account frozen, possible referral to the licensed partner's collections.</p><button class="btn sec" onclick="alert('Exit recorded as defaulted. Dispute auto-opened for review.')">I understand — record my exit</button></div>
-<div class="card"><b>Forced removal (admin)</b><p class="muted">Same rules + auto-dispute for independent review, stated reason, and appeal path. No silent removals.</p></div>
+<div class="card" id="xpre"><b>How leaving early works</b><p class="muted">Your spot and remaining payments move to someone new your admin invites. No cash back — your past payments already helped others get paid.</p><input id="xname" placeholder="Replacement name"><input id="xphone" placeholder="Replacement phone"><p class="note">You have 7 days to find them — otherwise the group pauses that spot and adjusts. Everyone is told what changed.</p><details><summary class="note">Policy details</summary><p class="note">Replacement inherits slot + schedule; short-handling + resequence if none found; full audit trail.</p></details><button class="btn" onclick="exitDo()">Invite replacement</button><p class="note" id="xmsg"></p></div>
+<div class="card" id="xpost" style="display:none;border-color:var(--err)"><b class="bad">⚠ Leaving after payout = default</b><p class="muted">You already collected, so stopping now breaks the group. Score −300, account paused. Our licensed partner may follow up on the balance.</p><details><summary class="note">Policy details</summary><p class="note">Immediate defaulted status, no grace ladder; dispute opened for review; possible partner collections referral.</p></details><button class="btn sec" onclick="alert('Exit recorded. We opened a review so you can appeal.')">I understand — record my exit</button></div>
+<div class="card"><b>Removed by admin?</b><p class="muted">Same rules apply, and you always get a reason plus a way to appeal. Nobody is removed silently.</p></div>
 <div class="card"><b>Dissolve group?</b><p class="muted">Over 50% cycles done: admin may dissolve with notice (unpaid members refunded pro-rata). Under 50%: majority must agree. Fraud: platform freezes, per-member review.</p></div>
+</div>
+
+<!-- NOTIFICATIONS -->
+<div class="screen" id="s-notif">
+<div class="appbar" style="padding:0 0 8px"><button class="back" onclick="go('home')">‹</button><b>Notifications</b><span style="width:34px"></span></div>
+<div class="card"><div class="row"><div><b>💰 Contribution due in 3 days</b><div class="muted">₦5,000 + ₦75 fee · Bodija Weekly · Due May 25</div></div></div></div>
+<div class="card"><div class="row"><div><b>🎉 Payout in 2 days</b><div class="muted">Aunty Ngozi receives ₦100,000 · 15 of 20 paid</div></div></div></div>
+<div class="card"><div class="row"><div><b>📈 Credit up +₦25,000</b><div class="muted">95% consistency for 4 months · Silver, 80 to Gold</div></div></div></div>
+<div class="card"><div class="row"><div><b>⏳ Dispute update</b><div class="muted">Case #231 under review · response within 24h</div></div></div></div>
 </div>
 
 <!-- DISPUTES -->
@@ -207,12 +221,15 @@ summary{font-weight:800;cursor:pointer}
 <div class="muted">Profile Strength 80%</div><div class="bar"><i class="g" style="width:80%"></i></div>
 <p class="muted">Phone verified +25 • Date of birth +25 • Selfie +30 • BVN/NIN +20 (V2)</p>
 <select><option>Pidgin</option><option>English</option><option>Yoruba</option><option>Hausa</option><option>Igbo</option></select></div>
-<div class="card"><b>🏛 AJOCREDIT Passport</b><p class="muted">Your Community Credit Identity — power, history, trust, reputation.</p><div class="qr"></div><div style="text-align:center"><button class="btn green" onclick="alert('Passport shared with consent')">Share my Passport</button></div></div>
+<div class="card"><b>🏛 AJOCREDIT Passport</b><div class="passport"><div class="row"><img class="avatar" src="photos/trader-hero.jfif" alt="You"><div style="flex:1"><b>Aunty Bola</b><div style="font-size:12px;opacity:.9">AJ-774821 · Silver · Gold group</div></div><b>₦450,000</b></div><div style="font-size:12px;opacity:.9;margin-top:6px">ESTIMATED illustrative value · 92% on-time · 1 group done</div><div class="qr"></div><div style="font-size:11px;opacity:.85;text-align:center">Scan to verify</div></div><div style="text-align:center"><button class="btn green" onclick="alert('Passport shared with consent')">Share my Passport</button></div></div>
 <div class="card"><b>🧕 Mama Bola:</b> <span class="muted">“Welcome. I go show you how AJOCREDIT work.”</span></div>
-<div class="card"><b>Bring Your Group — Earn Rewards</b><p class="muted">Move Your Ajo To AJOCREDIT, Get Bonuses. AJ-4821.</p><button class="btn sec" onclick="alert('Referral copied')">Copy invite</button></div>
+<div class="card"><b>Bring Your Group — Earn Rewards</b><div class="row" style="margin-top:8px"><span class="muted">Invites sent 12</span><span class="muted">Joined 5</span><span class="ok">Earned ₦2,500</span></div><p class="muted">Move Your Ajo To AJOCREDIT, Get Bonuses. AJ-4821.</p><button class="btn sec" onclick="alert('Referral copied')">Copy invite</button></div>
 <div class="card"><b>Help & disputes</b><div class="row"><span class="muted">1 case under review</span><button class="btn sec" onclick="go('disputes')">Open Disputes center</button></div><button class="btn sec" onclick="alert('WhatsApp support Mon–Sat 8am–8pm')">Chat support</button></div>
 <div class="photorow"><img src="photos/pro-office-man.jfif" alt="Professional"><img src="photos/pro-phone-woman.jfif" alt="Professional"><img src="photos/pro-phone-man.jfif" alt="Professional"></div>
 </div>
+
+<!-- ONBOARDING TOUR -->
+<div class="onboard on" id="ob"><div class="obcard"><div class="em" id="obem">💰</div><h3 id="obtitle">Turn Your Ajo Into Credit</h3><p class="muted" id="obbody">Save with people you trust. We turn it into something banks respect.</p><div class="obdots" id="obdots">●○○○</div><button class="btn" onclick="obNext()">Next</button><p><a href="#" onclick="obSkip();return false" class="muted">Skip tour</a></p></div></div>
 
 <div class="nav">
 <button class="on" onclick="go('home',this)">🏠<br>Home</button>
@@ -238,6 +255,10 @@ function exitPath(p){document.getElementById('xp').classList.toggle('on',p==='pr
 function exitDo(){var n=document.getElementById('xname').value.trim(),t=document.getElementById('xphone').value.trim();if(!n||!t){document.getElementById('xmsg').innerHTML='<b style=color:#F87171>Add replacement name + phone</b>';return}document.getElementById('xmsg').innerHTML='<b>'+n+'</b> invited. Slot #7 + remaining schedule transfer when they join. 7-day window, all members notified.';}
 function fileDispute(){var r=document.getElementById('dref').value.trim();if(!r){document.getElementById('dmsg').innerHTML='<b style=color:#F87171>Transaction ID required</b> — system records decide, so cite yours.';return}document.getElementById('dmsg').innerHTML='Case <b>#232 opened → Triaged</b>. Standard: response 24h, resolve 5 business days. Penalty flagged <b>under review</b>.';}
 function toggleLang(){pg=!pg;document.getElementById('langbtn').innerText=pg?'🇬🇧':'🇳🇬';document.getElementById('greet').innerText=pg?'Good afternoon':'Good afternoon';document.querySelectorAll('[data-en]').forEach(el=>{el.innerText=pg?el.dataset.pg:el.dataset.en});}
+var obStep=0;var obData=[['💰','Turn Your Ajo Into Credit','Save with people you trust. We turn it into something banks respect.'],['🤝','Your Contributions Build Trust','Every on-time payment grows your name. Start at 250, climb to Platinum.'],['🎫','Get A Credit Passport','Your photo, power, trust and history on one card. Share it with permission.'],['👥','Create Or Join A Group','Start a group in a minute, or join with a code like AJ-4821.']];
+function obShow(){var d=obData[obStep];document.getElementById('obem').innerText=d[0];document.getElementById('obtitle').innerText=d[1];document.getElementById('obbody').innerText=d[2];document.getElementById('obdots').innerText='●●●●'.slice(0,obStep+1)+'○○○'.slice(0,3-obStep);}
+function obNext(){if(obStep>=3){obSkip();return}obStep++;obShow();}
+function obSkip(){document.getElementById('ob').classList.remove('on');try{localStorage.setItem('ajo_ob','1')}catch(e){}}
 document.querySelectorAll('.chips').forEach(function(c){c.addEventListener('click',function(e){if(e.target.classList.contains('chip')){c.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));e.target.classList.add('on')}})});
 </script>
 </body>

@@ -1,0 +1,17 @@
+{
+  "name": "ajocredit-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "db:up": "docker compose up -d db",
+    "db:seed": "node db-check.js --seed",
+    "verify": "node ../verify.mjs"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "pg": "^8.12.0"
+  }
+}

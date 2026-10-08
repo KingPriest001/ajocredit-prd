@@ -48,7 +48,7 @@ const adaScore2 = Math.round(sc2(ada2));
 ok("tiers 349B/350S/600G/800P", tierFor(349) === "Bronze" && tierFor(350) === "Silver" && tierFor(600) === "Gold" && tierFor(800) === "Platinum");
 ok("520 Silver, 80 to Gold, power ≈559600", tierFor(520) === "Silver" && (600 - 520) === 80 && power(520) >= 559000 && power(520) <= 560000);
 ok(`Ada scores positive (got ${adaScore2})`, adaScore2 > 0);
-ok("late-20/dispute-50/default-150 stack", (() => { const c = { ...ada2, late: 0, disp: 0, def: 0 }; return Math.round(sc2(c)) - Math.round(sc2({ ...ada2, disp: 1, def: 1 })) === 200; })());
+ok("late-20/dispute-50/default-150 stack", (() => { const c = { ...ada2, late: 0, disp: 0, def: 0 }; return Math.round(sc2(c)) - Math.round(sc2({ ...ada2, late: 1, disp: 1, def: 1 })) === 220; })());
 ok("cold start → 250 Bronze", true); // baseline for zero-history users per §6
 ok("fraud → Bronze cap (manual override)", tierFor(950) === "Platinum"); // cap applied by flag, not formula
 
