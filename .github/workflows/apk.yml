@@ -17,10 +17,10 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 21
+          java-version: 17
       # No setup-android: ubuntu-latest runners ship the Android SDK preinstalled (ANDROID_HOME).
       - run: npm init -y
-      - run: npm i @capacitor/core @capacitor/cli @capacitor/android
+      - run: npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
       - run: npx cap init "AJOCREDIT" com.ajocredit.app --web-dir=prototype
       - run: npx cap add android
       - run: npx cap sync
