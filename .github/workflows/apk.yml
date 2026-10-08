@@ -20,9 +20,11 @@ jobs:
           java-version: 17
       # No setup-android: ubuntu-latest runners ship the Android SDK preinstalled (ANDROID_HOME).
       - run: npm init -y
-      - run: npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+      - run: npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/assets
       - run: npx cap init "AJOCREDIT" com.ajocredit.app --web-dir=prototype
       - run: npx cap add android
+      - run: mkdir -p resources && cp prototype/icon-1024.png resources/icon.png && cp prototype/icon-1024.png resources/splash.png
+      - run: npx capacitor-assets generate --android
       - run: npx cap sync
       - run: cd android && chmod +x gradlew && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
