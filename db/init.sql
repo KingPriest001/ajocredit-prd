@@ -191,5 +191,5 @@ INSERT INTO notifications (id, user_id, kind, title, body) VALUES
 
 INSERT INTO referrals (id, inviter_id, code, invited_phone, status, reward_naira) VALUES
  ('r1', 'u-bola', 'AJ-4821', '+2348050000002', 'joined', 500),
- ('r2', 'u-bola', 'AJ-4821', '+2347020000003', 'sent', 0)
+ ('r2', 'u-bola', 'AJ-4821-B', '+2347020000003', 'sent', 0)
  ON CONFLICT (id) DO NOTHING;

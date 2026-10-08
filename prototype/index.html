@@ -260,6 +260,8 @@ function obShow(){var d=obData[obStep];document.getElementById('obem').innerText
 function obNext(){if(obStep>=3){obSkip();return}obStep++;obShow();}
 function obSkip(){document.getElementById('ob').classList.remove('on');try{localStorage.setItem('ajo_ob','1')}catch(e){}}
 document.querySelectorAll('.chips').forEach(function(c){c.addEventListener('click',function(e){if(e.target.classList.contains('chip')){c.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));e.target.classList.add('on')}})});
+/* Live API (localhost:4000) — silent fallback to mock when offline */
+try{var ac=new AbortController();setTimeout(function(){ac.abort()},2000);fetch('http://localhost:4000/api/score/AJ-774821',{signal:ac.signal}).then(function(r){return r.json()}).then(function(d){if(!d||!d.user)return;var t=document.querySelector('#s-credit svg text');if(t)t.textContent=d.user.score;var tiers=document.querySelectorAll('#s-credit .card b');}).catch(function(){})}catch(e){}
 </script>
 </body>
 </html>
