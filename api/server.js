@@ -215,6 +215,50 @@ async function main() {
     } else res.json({ ok: true, ignored: ev.event });
   });
 
+  app.post('/api/groups', async (req, res) => {
+    const { name, amount, size, frequency, payout_mode, admin_phone, admin_name } = req.body || {};
+    if (!name || !amount || !admin_phone) return res.status(400).json({ error: 'name, amount, admin_phone required' });
+    try {
+      const now = Date.now();
+      let u = await q('SELECT * FROM users WHERE phone=$1', [admin_phone]);
+      if (!u.length) {
+        const uid = `u-${now}`, aj = `AJ-${Math.floor(100000 + Math.random() * 900000)}`;
+        await q(`INSERT INTO users (id, phone, name, verification, ajocredit_id, score, tier, provisional) VALUES ($1,$2,$3,'OTP',$4,250,'Bronze',TRUE)`,
+          [uid, admin_phone, admin_name || 'Member', aj]);
+        u = await q('SELECT * FROM users WHERE id=$1', [uid]);
+      }
+      const gid = `g-${now}`;
+      await q(`INSERT INTO groups (id, name, type, amount, size, frequency, payout_mode, status, rules) VALUES ($1,$2,'ROTATIONAL',$3,$4,$5,$6,'FORMING','{\"grace_hours\":48}')`,
+        [gid, name, amount, size || 10, frequency || 'Weekly', payout_mode || 'random']);
+      await q(`INSERT INTO memberships (id, user_id, group_id, role, status) VALUES ($1,$2,$3,'admin','ACTIVE')`, [`m-${now}`, u[0].id, gid]);
+      res.json({ ok: true, group_id: gid, invite_code: gid.slice(2, 8).toUpperCase(), admin: u[0].ajocredit_id });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
+  app.post('/api/disputes/:id/appeal', async (req, res) => {
+    try {
+      const r = await q('UPDATE disputes SET status=$1 WHERE id=$2 RETURNING id, status', ['APPEAL', req.params.id]);
+      if (!r.length) return res.status(404).json({ error: 'dispute not found' });
+      res.json({ ok: true, ...r[0], note: 'a different reviewer takes over' });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+  app.post('/api/exits', async (req, res) => {
+    const { group_id, user_id, kind } = req.body || {};
+    if (!group_id || !user_id || !kind) return res.status(400).json({ error: 'group_id, user_id, kind (pre|post) required' });
+    try {
+      const ref = `EXIT-${Date.now()}`;
+      await q(`INSERT INTO notifications (id, user_id, kind, title, body) VALUES ($1,$2,'exit',$3,$4)`,
+        [`ex-${Date.now()}`, user_id, `Exit recorded (${kind}-payout)`, `Ref ${ref}. ${kind === 'post' ? 'Immediate default, review opened.' : 'Replacement invited, 7-day window.'}`]);
+      if (kind === 'post') {
+        await q(`INSERT INTO disputes (id, group_id, raised_by, category, status) VALUES ($1,$2,$3,'non-payment','OPEN')`, [`d-${Date.now()}`, group_id, user_id]);
+      }
+      res.json({ ok: true, ref });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+  app.get('/api/groups/:id/members', async (req, res) => {
+    res.json(await q(`SELECT m.id, m.role, m.payout_slot, m.status, u.name, u.ajocredit_id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.group_id=$1 ORDER BY m.payout_slot NULLS LAST`, [req.params.id]));
+  });
+
   app.listen(PORT, () => console.log(`AJOCREDIT API on :${PORT}`));
 }
 
