@@ -1,4 +1,11 @@
 // AJOCREDIT API — Postgres-backed (PGlite, data in api/.pglite-data). Mirrors prisma schema.
+// Minimal .env loader (no dependency): KEY=VALUE lines, ignores # comments.
+try {
+  require('fs').readFileSync(require('path').join(__dirname, '..', '.env'), 'utf8').split('\n').forEach((l) => {
+    const m = l.match(/^\s*([A-Z0-9_]+)=(.*)\s*$/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
+  });
+} catch (e) {}
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
@@ -78,6 +85,76 @@ async function main() {
     const u = await q('SELECT * FROM users WHERE ajocredit_id=$1', [req.params.ajId]);
     if (!u.length) return res.status(404).json({ error: 'not found' });
     res.json({ name: u[0].name, ajocredit_id: u[0].ajocredit_id, score: u[0].score, tier: u[0].tier || tierFor(u[0].score), trust: 'Gold', reputation: '92% on-time · 1 group' });
+  });
+
+  // OTP via Termii (generic channel). In-memory codes (pilot scale): 6-digit, 5-min expiry, 5 fails → 15-min lock.
+  const otpStore = new Map();
+  app.post('/api/otp/send', async (req, res) => {
+    const { phone } = req.body || {};
+    if (!phone) return res.status(400).json({ error: 'phone required' });
+    const rec = otpStore.get(phone) || { fails: 0, lockedUntil: 0 };
+    if (Date.now() < rec.lockedUntil) return res.status(429).json({ error: 'locked, try later' });
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    otpStore.set(phone, { ...rec, code, expires: Date.now() + 5 * 60 * 1000 });
+    const key = process.env.TERMII_API_KEY;
+    if (!key || key === 'REPLACE_ME') return res.json({ ok: true, mode: 'mock', note: 'TERMII_API_KEY not set' });
+    try {
+      const r = await fetch('https://v3.api.termii.com/api/sms/send', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: key, to: phone.replace(/^\+/, ''), from: 'AJOCREDIT', sms: `Your AJOCREDIT code is ${code}. Expires in 5 minutes.`, type: 'plain', channel: 'generic' }),
+      });
+      const j = await r.json();
+      res.json({ ok: true, mode: 'live', termii: j.message_id || j.message || 'sent' });
+    } catch (e) { res.status(502).json({ ok: false, error: e.message }); }
+  });
+  app.post('/api/otp/verify', (req, res) => {
+    const { phone, code } = req.body || {};
+    const rec = otpStore.get(phone);
+    if (!rec || !rec.code) return res.status(400).json({ error: 'no code sent' });
+    if (Date.now() > rec.expires) return res.status(401).json({ error: 'expired' });
+    if (rec.code !== String(code)) {
+      rec.fails = (rec.fails || 0) + 1;
+      if (rec.fails >= 5) rec.lockedUntil = Date.now() + 15 * 60 * 1000;
+      return res.status(401).json({ error: 'invalid', fails: rec.fails });
+    }
+    otpStore.delete(phone);
+    res.json({ ok: true, ajocredit_id: 'AJ-' + Math.floor(100000 + Math.random() * 900000) });
+  });
+
+  // WhatsApp Cloud API webhook (auto-response). Meta verifies with GET; messages arrive via POST.
+  // Setup: Meta app → WhatsApp product → token (WHATSAPP_TOKEN) + Phone Number ID + webhook URL /webhooks/whatsapp + VERIFY_TOKEN. See docs/WHATSAPP.md.
+  app.get('/webhooks/whatsapp', (req, res) => {
+    if (req.query['hub.verify_token'] === (process.env.WHATSAPP_VERIFY_TOKEN || 'ajocredit-verify')) return res.send(req.query['hub.challenge']);
+    res.sendStatus(403);
+  });
+  function waReply(text) {
+    const t = (text || '').toLowerCase();
+    const has = (...ws) => ws.some((w) => t.includes(w));
+    if (has('payout', 'collect', 'gbe owo')) return 'Next payout: Aunty Ngozi · ₦100,000 in 2 days 4 hrs. 15 of 20 paid. You will be notified immediately it lands.';
+    if (has('due', 'contribut', 'sanwo', 'next contribution')) return 'Your next contribution is ₦5,000 + ₦75 fee (Bodija Weekly). Due May 25 — 3 days left. Pay in the app or reply HELP.';
+    if (has('score', 'credit', 'power')) return 'Your Credit Power: ₦450,000 (ESTIMATED illustrative value). Silver · 80 points to Gold. Keep paying on time!';
+    if (has('dispute', 'complaint', 'wahala')) return 'Sorry about that. Open the app → Account → Disputes, or describe it here with your Transaction ID. We respond within 24 hours.';
+    if (has('join', 'invite', 'code', 'darapo')) return 'Join with code AJ-4821 in the app, or ask your admin for a fresh invite. Welcome!';
+    if (has('hello', 'hi', 'good', 'ebawo', 'kaabo')) return 'Welcome to AJOCREDIT! Ask about: DUE, PAYOUT, SCORE, DISPUTE, JOIN — or type HUMAN to reach support (Mon–Sat 8am–8pm).';
+    if (has('human', 'agent', 'person', 'eniyan')) return 'Noted — a human will reply here Mon–Sat 8am–8pm. For urgent money issues, call [support line].';
+    return "Thanks! I handle DUE, PAYOUT, SCORE, DISPUTE, JOIN. Type HUMAN for a person (Mon–Sat 8am–8pm).";
+  }
+  app.post('/webhooks/whatsapp', async (req, res) => {
+    try {
+      const msg = req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+      const from = msg?.from || 'unknown';
+      const text = msg?.text?.body || '';
+      const reply = waReply(text);
+      const token = process.env.WHATSAPP_TOKEN, phoneId = process.env.WHATSAPP_PHONE_ID;
+      if (token && phoneId && msg) {
+        await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messaging_product: 'whatsapp', to: from, text: { body: reply } }),
+        });
+      }
+      try { await db.query(`INSERT INTO notifications (id, user_id, kind, title, body) VALUES ($1,$2,'whatsapp',\"WA in: \"||$3,$4)`, [`wa-${Date.now()}`, 'u-bola', text.slice(0, 60), reply.slice(0, 200)]); } catch (e) {}
+      res.json({ ok: true, reply, sent: Boolean(token && phoneId && msg) });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
   app.listen(PORT, () => console.log(`AJOCREDIT API on :${PORT}`));
