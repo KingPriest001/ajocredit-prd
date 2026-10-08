@@ -97,9 +97,16 @@ async function main() {
 
   // OTP via Termii (generic channel). In-memory codes (pilot scale): 6-digit, 5-min expiry, 5 fails → 15-min lock.
   const otpStore = new Map();
+  const rl = new Map();
+  function limited(key, max, ms) {
+    const now = Date.now(), arr = (rl.get(key) || []).filter((t) => now - t < ms);
+    arr.push(now); rl.set(key, arr);
+    return arr.length > max;
+  }
   app.post('/api/otp/send', async (req, res) => {
     const { phone } = req.body || {};
     if (!phone) return res.status(400).json({ error: 'phone required' });
+    if (limited(`otp:${phone}`, 5, 15 * 60 * 1000)) return res.status(429).json({ error: 'too many requests, try in 15 min' });
     const rec = otpStore.get(phone) || { fails: 0, lockedUntil: 0 };
     if (Date.now() < rec.lockedUntil) return res.status(429).json({ error: 'locked, try later' });
     const code = String(Math.floor(100000 + Math.random() * 900000));
@@ -115,8 +122,8 @@ async function main() {
       res.json({ ok: true, mode: 'live', termii: j.message_id || j.message || 'sent' });
     } catch (e) { res.status(502).json({ ok: false, error: e.message }); }
   });
-  app.post('/api/otp/verify', (req, res) => {
-    const { phone, code } = req.body || {};
+  app.post('/api/otp/verify', async (req, res) => {
+    const { phone, code, device_id } = req.body || {};
     const rec = otpStore.get(phone);
     if (!rec || !rec.code) return res.status(400).json({ error: 'no code sent' });
     if (Date.now() > rec.expires) return res.status(401).json({ error: 'expired' });
@@ -126,8 +133,22 @@ async function main() {
       return res.status(401).json({ error: 'invalid', fails: rec.fails });
     }
     otpStore.delete(phone);
-    res.json({ ok: true, ajocredit_id: 'AJ-' + Math.floor(100000 + Math.random() * 900000) });
+    try {
+      let u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
+      if (!u.length) {
+        const uid = `u-${Date.now()}`, aj = 'AJ-' + Math.floor(100000 + Math.random() * 900000);
+        await q(`INSERT INTO users (id, phone, name, verification, ajocredit_id, score, tier, provisional) VALUES ($1,$2,'New Member','OTP',$3,250,'Bronze',TRUE)`, [uid, phone, aj]);
+        u = await q('SELECT * FROM users WHERE id=$1', [uid]);
+      }
+      if (device_id) {
+        await q(`INSERT INTO devices (id, user_id, device_id, last_seen) VALUES ($1,$2,$3,NOW())
+          ON CONFLICT (user_id, device_id) DO UPDATE SET last_seen=NOW()`, [`dv-${Date.now()}`, u[0].id, device_id]);
+      }
+      await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'otp.verify','user',$3)`, [`al-${Date.now()}`, u[0].id, u[0].id]);
+      res.json({ ok: true, ajocredit_id: u[0].ajocredit_id, user_id: u[0].id });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
+  // Request log: every money/score write also lands in audit_log at its handler.
 
   // WhatsApp Cloud API webhook (auto-response). Meta verifies with GET; messages arrive via POST.
   // Setup: Meta app → WhatsApp product → token (WHATSAPP_TOKEN) + Phone Number ID + webhook URL /webhooks/whatsapp + VERIFY_TOKEN. See docs/WHATSAPP.md.
@@ -210,9 +231,29 @@ async function main() {
         await db.query(`INSERT INTO contributions (id, membership_id, cycle_id, amount, fee, total, method, reference, status)
           VALUES ($1,$2,$3,$4,$5,$6,'paystack',$7,'CONFIRMED') ON CONFLICT (reference) DO NOTHING`,
           [`ct-${Date.now()}`, md.membership_id, md.cycle_id, md.pot, md.fee, md.pot + md.fee, ref]);
+        await db.query(`INSERT INTO ledger_entries (id, group_id, debit_acct, credit_acct, amount, type, ref_id, idempotency_key, status, hash)
+          VALUES ($1,$2,'psp:paystack',$3,$4,'contribution',$5,$6,'CONFIRMED',$7) ON CONFLICT (idempotency_key) DO NOTHING`,
+          [`le-${Date.now()}`, md.group_id, `pot:${md.group_id}`, md.pot, ref, `webhook:${ref}`, `h${Date.now()}`]);
+        await db.query(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,'paystack','webhook.confirm','contribution',$2)`, [`al-${Date.now()}`, ref]);
         res.json({ ok: true, confirmed: ref });
       } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } else if (ev.event === 'charge.failed') {
+      const ref = ev.data?.reference || '';
+      try {
+        await db.query(`UPDATE contributions SET status='FAILED' WHERE reference=$1`, [ref]);
+        await db.query(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,'paystack','webhook.fail','contribution',$2)`, [`al-${Date.now()}`, ref]);
+        res.json({ ok: true, marked_failed: ref });
+      } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
     } else res.json({ ok: true, ignored: ev.event });
+  });
+  // Reconciliation: confirmed contributions with no matching ledger entry, and vice versa.
+  app.get('/api/recon/:groupId', async (req, res) => {
+    const missing = await q(`SELECT c.reference, c.amount FROM contributions c LEFT JOIN ledger_entries l
+      ON l.ref_id=c.reference AND l.status='CONFIRMED' WHERE c.status='CONFIRMED' AND l.id IS NULL
+      AND c.cycle_id IN (SELECT id FROM cycles WHERE group_id=$1)`, [req.params.groupId]);
+    const failed = await q(`SELECT reference, amount FROM contributions WHERE status='FAILED'
+      AND cycle_id IN (SELECT id FROM cycles WHERE group_id=$1)`, [req.params.groupId]);
+    res.json({ ok: missing.length === 0, unmatched: missing, failed });
   });
 
   app.post('/api/groups', async (req, res) => {

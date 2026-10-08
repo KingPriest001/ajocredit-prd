@@ -4,5 +4,6 @@ dist/
 .env
 prototype/config.local.js
 api/.pglite-data/
+backups/
 *.log
 .DS_Store

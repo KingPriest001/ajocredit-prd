@@ -148,6 +148,25 @@ CREATE TABLE IF NOT EXISTS referrals (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS audit_log (
+  id TEXT PRIMARY KEY,
+  actor_id TEXT NOT NULL DEFAULT '',
+  action TEXT NOT NULL,
+  entity TEXT NOT NULL DEFAULT '',
+  entity_id TEXT NOT NULL DEFAULT '',
+  detail JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS devices (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  device_id TEXT NOT NULL,
+  last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(user_id, device_id)
+);
+
 -- Seed: Aunty Bola Market Women AJ-4821 (20 members, 15 paid, cycle 1)
 INSERT INTO users (id, phone, name, verification, ajocredit_id, score, tier, provisional) VALUES
  ('u-bola', '+2348030000001', 'Aunty Bola', 'KYC_LITE', 'AJ-774821', 520, 'Silver', FALSE)
