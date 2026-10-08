@@ -9,6 +9,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -31,3 +33,9 @@ jobs:
         with:
           name: ajocredit-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk prototype/ajocredit.apk
+      - run: |
+          git config user.name "ajocredit-ci"
+          git config user.email "ci@ajocredit.ng"
+          git add prototype/ajocredit.apk
+          git diff --staged --quiet || (git commit -m "[skip ci] Refresh published APK" && git push)
