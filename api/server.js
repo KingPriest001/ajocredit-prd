@@ -18,11 +18,19 @@ async function main() {
   const init = fs.readFileSync(path.join(__dirname, '..', 'db', 'init.sql'), 'utf8')
     .replace(/CREATE EXTENSION[^;]+;/, '');
   await db.exec(init);
+  await db.exec(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS dest_bank_code TEXT;
+    ALTER TABLE groups ADD COLUMN IF NOT EXISTS dest_account_number TEXT;
+    ALTER TABLE groups ADD COLUMN IF NOT EXISTS dest_account_name TEXT;
+    ALTER TABLE groups ADD COLUMN IF NOT EXISTS dest_verified BOOLEAN NOT NULL DEFAULT FALSE;`);
 
   const PORT = process.env.PORT || 4000;
   const app = express();
   app.use(cors());
-  app.use(express.json());
+  app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
+  const crypto = require('crypto');
+  const PAYS_MODE = process.env.PAYMENTS_MODE || 'direct';
+  const PSK = () => process.env.PAYSTACK_SECRET_KEY || '';
+  const PS_HDR = () => ({ Authorization: `Bearer ${PSK()}`, 'Content-Type': 'application/json' });
   const q = (t, p) => db.query(t, p).then((r) => r.rows);
 
   function feeFor(amount) {
@@ -155,6 +163,56 @@ async function main() {
       try { await db.query(`INSERT INTO notifications (id, user_id, kind, title, body) VALUES ($1,$2,'whatsapp',\"WA in: \"||$3,$4)`, [`wa-${Date.now()}`, 'u-bola', text.slice(0, 60), reply.slice(0, 200)]); } catch (e) {}
       res.json({ ok: true, reply, sent: Boolean(token && phoneId && msg) });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
+  // Direct-settlement payments (PAYMENTS_MODE=direct): money settles to the group's own
+  // destination account (admin/recipient), never an AJOCREDIT balance. Pooled mode (custodian) is gated.
+  app.get('/api/banks', async (req, res) => {
+    try {
+      const r = await fetch('https://api.paystack.co/bank?country=nigeria', { headers: PS_HDR() });
+      const j = await r.json();
+      res.json((j.data || []).map((b) => ({ name: b.name, code: b.code })));
+    } catch (e) { res.status(502).json({ error: e.message }); }
+  });
+  app.post('/api/groups/:id/destination', async (req, res) => {
+    const { bank_code, account_number } = req.body || {};
+    if (!bank_code || !account_number) return res.status(400).json({ error: 'bank_code + account_number required' });
+    try {
+      const r = await fetch(`https://api.paystack.co/bank/resolve?account_number=${account_number}&bank_code=${bank_code}`, { headers: PS_HDR() });
+      const j = await r.json();
+      if (!j.status) return res.status(422).json({ error: j.message || 'account could not be verified' });
+      await db.query('UPDATE groups SET dest_bank_code=$1, dest_account_number=$2, dest_account_name=$3, dest_verified=TRUE WHERE id=$4',
+        [bank_code, account_number, j.data.account_name, req.params.id]);
+      res.json({ ok: true, account_name: j.data.account_name, mode: PAYS_MODE });
+    } catch (e) { res.status(502).json({ error: e.message }); }
+  });
+  app.post('/api/payments/init', async (req, res) => {
+    const { group_id, membership_id, cycle_id, amount, email } = req.body || {};
+    if (!group_id || !membership_id || !cycle_id || !amount) return res.status(400).json({ error: 'group_id, membership_id, cycle_id, amount required' });
+    const g = await q('SELECT * FROM groups WHERE id=$1', [group_id]);
+    if (!g.length) return res.status(404).json({ error: 'group not found' });
+    const { fee, total } = feeFor(amount);
+    res.json({ ok: true, mode: PAYS_MODE, amount, fee, total, amount_kobo: total * 100,
+      paystack_key: process.env.PAYSTACK_PUBLIC_KEY || null,
+      reference: `${group_id.slice(0, 8)}-C${cycle_id.slice(-2)}-${Date.now()}`,
+      destination: g[0].dest_verified ? { bank: g[0].dest_bank_code, account: '••' + String(g[0].dest_account_number).slice(-4), name: g[0].dest_account_name } : null,
+      metadata: { group_id, membership_id, cycle_id, pot: amount, fee } });
+  });
+  app.post('/webhooks/paystack', async (req, res) => {
+    const sig = req.headers['x-paystack-signature'];
+    const expect = crypto.createHmac('sha512', PSK()).update(req.rawBody || '').digest('hex');
+    if (!sig || sig !== expect) return res.status(401).json({ error: 'bad signature' });
+    const ev = req.body || {};
+    if (ev.event === 'charge.success') {
+      const md = ev.data?.metadata || {};
+      const ref = ev.data?.reference || '';
+      try {
+        await db.query(`INSERT INTO contributions (id, membership_id, cycle_id, amount, fee, total, method, reference, status)
+          VALUES ($1,$2,$3,$4,$5,$6,'paystack',$7,'CONFIRMED') ON CONFLICT (reference) DO NOTHING`,
+          [`ct-${Date.now()}`, md.membership_id, md.cycle_id, md.pot, md.fee, md.pot + md.fee, ref]);
+        res.json({ ok: true, confirmed: ref });
+      } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } else res.json({ ok: true, ignored: ev.event });
   });
 
   app.listen(PORT, () => console.log(`AJOCREDIT API on :${PORT}`));
