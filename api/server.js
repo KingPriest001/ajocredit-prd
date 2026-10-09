@@ -311,7 +311,7 @@ async function main() {
     res.json(await q(`SELECT m.id, m.role, m.payout_slot, m.status, u.name, u.ajocredit_id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.group_id=$1 ORDER BY m.payout_slot NULLS LAST`, [req.params.id]));
   });
 
-  app.listen(PORT, () => console.log(`AJOCREDIT API on :${PORT}`));
+  app.listen(PORT, '0.0.0.0', () => console.log(`AJOCREDIT API on :${PORT}`));
 }
 
 main().catch((e) => { console.error('API-FAIL:', e.message); process.exit(1); });
