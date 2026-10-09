@@ -17,9 +17,18 @@ async function main() {
   let db, exec;
   if (process.env.USE_EXTERNAL_DB === '1') {
     const { Pool } = require('pg');
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+    // Strip params node-postgres can't use (e.g. channel_binding) to avoid connect-time crashes.
+    const cleanUrl = (process.env.DATABASE_URL || '').replace(/([?&])channel_binding=[^&]*/g, '$1').replace(/[?&]$/, '');
+    const pool = new Pool({ connectionString: cleanUrl, ssl: { rejectUnauthorized: false } });
     db = { query: (t, p) => pool.query(t, p), exec: async (sql) => { await pool.query(sql); } };
     exec = (sql) => pool.query(sql);
+    // Neon cold starts can take seconds — retry instead of crashing the deploy.
+    let connected = false;
+    for (let i = 1; i <= 6 && !connected; i++) {
+      try { await pool.query('SELECT 1'); connected = true; console.log('DB connected'); }
+      catch (e) { console.log(`DB retry ${i}/6: ${e.message}`); await new Promise((r) => setTimeout(r, 5000)); }
+    }
+    if (!connected) throw new Error('DB unreachable after 6 retries');
   } else {
     const { PGlite } = await import('@electric-sql/pglite');
     db = new PGlite(path.join(__dirname, '.pglite-data'));
@@ -315,3 +324,4 @@ async function main() {
 }
 
 main().catch((e) => { console.error('API-FAIL:', e.message); process.exit(1); });
+process.on('unhandledRejection', (e) => console.error('UNHANDLED:', e && e.message ? e.message : e));
