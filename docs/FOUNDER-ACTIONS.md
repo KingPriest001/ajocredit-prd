@@ -14,7 +14,7 @@ Owner default: **Founder (Boniface)** unless named. Dates from 2026-10-03.
 ## Week 2 — legal rails
 | # | Action | Owner | By | Depends on |
 |---|---|---|---|---|
-| 6 | Custodian MOU: segregated pooled-fund account (MFB/PSB/DMB) | Founder + Counsel | Oct 14 | Counsel engaged |
+| 6 | Custodian MOU: **ONLY if pooled mode is ever switched on** — not needed while direct-settlement holds (AJOCREDIT never holds funds). When triggered: segregated pooled-fund account (MFB/PSB/DMB) | Founder + Counsel | Pooled-mode gate, not pilot | Counsel engaged |
 | 7 | Counsel opinion: BOFIA posture, Passport-sharing scope, BVN framework, NFIU/SCUML need | Counsel | Oct 14 | — |
 | 8 | Rotate Paystack test keys (shared via chat) before real funds | Founder | Oct 7 | — |
 

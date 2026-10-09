@@ -12,13 +12,24 @@ const fs = require('fs');
 const path = require('path');
 
 async function main() {
-  const { PGlite } = await import('@electric-sql/pglite');
-  const db = new PGlite(path.join(__dirname, '.pglite-data'));
-  await db.waitReady;
+  // Local default: embedded Postgres (PGlite, api/.pglite-data). Cloud: set USE_EXTERNAL_DB=1
+  // with DATABASE_URL pointing at managed Postgres (e.g. Neon) — same schema, same code.
+  let db, exec;
+  if (process.env.USE_EXTERNAL_DB === '1') {
+    const { Pool } = require('pg');
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+    db = { query: (t, p) => pool.query(t, p), exec: async (sql) => { await pool.query(sql); } };
+    exec = (sql) => pool.query(sql);
+  } else {
+    const { PGlite } = await import('@electric-sql/pglite');
+    db = new PGlite(path.join(__dirname, '.pglite-data'));
+    await db.waitReady;
+    exec = (sql) => db.exec(sql);
+  }
   const init = fs.readFileSync(path.join(__dirname, '..', 'db', 'init.sql'), 'utf8')
     .replace(/CREATE EXTENSION[^;]+;/, '');
-  await db.exec(init);
-  await db.exec(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS dest_bank_code TEXT;
+  await exec(init);
+  await exec(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS dest_bank_code TEXT;
     ALTER TABLE groups ADD COLUMN IF NOT EXISTS dest_account_number TEXT;
     ALTER TABLE groups ADD COLUMN IF NOT EXISTS dest_account_name TEXT;
     ALTER TABLE groups ADD COLUMN IF NOT EXISTS dest_verified BOOLEAN NOT NULL DEFAULT FALSE;`);
@@ -42,7 +53,7 @@ async function main() {
   function tierFor(s) { return s >= 800 ? 'Platinum' : s >= 600 ? 'Gold' : s >= 350 ? 'Silver' : 'Bronze'; }
 
   app.get('/health', async (req, res) => {
-    try { await db.query('SELECT 1'); res.json({ ok: true, db: 'up', engine: 'pglite-postgres' }); }
+    try { await db.query('SELECT 1'); res.json({ ok: true, db: 'up', engine: process.env.USE_EXTERNAL_DB === '1' ? 'postgres-managed' : 'pglite-postgres' }); }
     catch (e) { res.status(500).json({ ok: false, db: 'down', error: e.message }); }
   });
 
