@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 
 async function main() {
+  console.log('BOOT mode=' + (process.env.USE_EXTERNAL_DB === '1' ? 'external' : 'embedded') + ' node=' + process.version);
   // Local default: embedded Postgres (PGlite, api/.pglite-data). Cloud: set USE_EXTERNAL_DB=1
   // with DATABASE_URL pointing at managed Postgres (e.g. Neon) — same schema, same code.
   let db, exec;
