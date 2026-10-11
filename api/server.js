@@ -88,7 +88,18 @@ async function main() {
     res.json(await q('SELECT * FROM ledger_entries WHERE group_id=$1 ORDER BY created_at DESC LIMIT 50', [req.params.id]));
   });
 
-  app.post('/api/contributions', async (req, res) => {
+  // Auth: Bearer session token. Enforced only when REQUIRE_AUTH=1 (pilot stays open, production locks).
+  async function auth(req, res, next) {
+    if (process.env.REQUIRE_AUTH !== '1') { req.user = null; return next(); }
+    const t = (req.headers.authorization || '').replace(/^Bearer /, '');
+    if (!t) return res.status(401).json({ error: 'token required' });
+    const h = crypto.createHash('sha256').update(t).digest('hex');
+    const s = await q('SELECT user_id FROM sessions WHERE token_hash=$1 AND expires_at > NOW()', [h]);
+    if (!s.length) return res.status(401).json({ error: 'invalid token' });
+    req.user = s[0].user_id;
+    next();
+  }
+  app.post('/api/contributions', auth, async (req, res) => {
     const { membership_id, cycle_id, amount, method, reference } = req.body || {};
     if (!membership_id || !cycle_id || !amount || !reference) return res.status(400).json({ error: 'membership_id, cycle_id, amount, reference required' });
     const { fee, total } = feeFor(amount);
@@ -166,7 +177,12 @@ async function main() {
           ON CONFLICT (user_id, device_id) DO UPDATE SET last_seen=NOW()`, [`dv-${Date.now()}`, u[0].id, device_id]);
       }
       await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'otp.verify','user',$3)`, [`al-${Date.now()}`, u[0].id, u[0].id]);
-      res.json({ ok: true, ajocredit_id: u[0].ajocredit_id, user_id: u[0].id });
+      // Session token: random 256-bit, stored hashed, 30-day expiry, bound to device.
+      const token = crypto.randomBytes(32).toString('hex');
+      const thash = crypto.createHash('sha256').update(token).digest('hex');
+      await q(`INSERT INTO sessions (id, user_id, token_hash, device_id, expires_at) VALUES ($1,$2,$3,$4,NOW() + INTERVAL '30 days')`,
+        [`se-${Date.now()}`, u[0].id, thash, device_id || '']);
+      res.json({ ok: true, ajocredit_id: u[0].ajocredit_id, user_id: u[0].id, token });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
   // Request log: every money/score write also lands in audit_log at its handler.
@@ -216,7 +232,7 @@ async function main() {
       res.json((j.data || []).map((b) => ({ name: b.name, code: b.code })));
     } catch (e) { res.status(502).json({ error: e.message }); }
   });
-  app.post('/api/groups/:id/destination', async (req, res) => {
+  app.post('/api/groups/:id/destination', auth, async (req, res) => {
     const { bank_code, account_number } = req.body || {};
     if (!bank_code || !account_number) return res.status(400).json({ error: 'bank_code + account_number required' });
     try {
@@ -277,7 +293,7 @@ async function main() {
     res.json({ ok: missing.length === 0, unmatched: missing, failed });
   });
 
-  app.post('/api/groups', async (req, res) => {
+  app.post('/api/groups', auth, async (req, res) => {
     const { name, amount, size, frequency, payout_mode, admin_phone, admin_name } = req.body || {};
     if (!name || !amount || !admin_phone) return res.status(400).json({ error: 'name, amount, admin_phone required' });
     try {
@@ -297,14 +313,14 @@ async function main() {
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
-  app.post('/api/disputes/:id/appeal', async (req, res) => {
+  app.post('/api/disputes/:id/appeal', auth, async (req, res) => {
     try {
       const r = await q('UPDATE disputes SET status=$1 WHERE id=$2 RETURNING id, status', ['APPEAL', req.params.id]);
       if (!r.length) return res.status(404).json({ error: 'dispute not found' });
       res.json({ ok: true, ...r[0], note: 'a different reviewer takes over' });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
-  app.post('/api/exits', async (req, res) => {
+  app.post('/api/exits', auth, async (req, res) => {
     const { group_id, user_id, kind } = req.body || {};
     if (!group_id || !user_id || !kind) return res.status(400).json({ error: 'group_id, user_id, kind (pre|post) required' });
     try {

@@ -4,12 +4,21 @@ on:
     branches: [main]
   pull_request:
 jobs:
-  lint-test:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: node --version
-      - run: echo "TODO: npm ci + lint + test (app/api not yet implemented)"
+      - run: node verify.mjs
+      - run: node -e "const fs=require('fs');for(const f of ['prototype/index.html','prototype/landing.html']){const h=fs.readFileSync(f,'utf8');const m=h.match(/<script>([\s\S]*?)<\/script>/g)||[];for(const s of m){new (require('vm').Script)(s.replace(/<\/?script>/g,''))}console.log('JS-OK',f)}"
+  api-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: cd api && npm install --no-audit --no-fund
+      - run: cd api && (node server.js &>/tmp/api.log & echo $! > /tmp/api.pid) && sleep 25 && curl -sf http://localhost:4000/health && kill $(cat /tmp/api.pid)

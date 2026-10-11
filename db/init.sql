@@ -167,6 +167,16 @@ CREATE TABLE IF NOT EXISTS devices (
   UNIQUE(user_id, device_id)
 );
 
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT UNIQUE NOT NULL,
+  device_id TEXT NOT NULL DEFAULT '',
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash);
+
 -- Seed: Aunty Bola Market Women AJ-4821 (20 members, 15 paid, cycle 1)
 INSERT INTO users (id, phone, name, verification, ajocredit_id, score, tier, provisional) VALUES
  ('u-bola', '+2348030000001', 'Aunty Bola', 'KYC_LITE', 'AJ-774821', 520, 'Silver', FALSE)
