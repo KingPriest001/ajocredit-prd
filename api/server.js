@@ -42,7 +42,9 @@ async function main() {
   await exec(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS dest_bank_code TEXT;
     ALTER TABLE groups ADD COLUMN IF NOT EXISTS dest_account_number TEXT;
     ALTER TABLE groups ADD COLUMN IF NOT EXISTS dest_account_name TEXT;
-    ALTER TABLE groups ADD COLUMN IF NOT EXISTS dest_verified BOOLEAN NOT NULL DEFAULT FALSE;`);
+    ALTER TABLE groups ADD COLUMN IF NOT EXISTS dest_verified BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE groups ADD COLUMN IF NOT EXISTS invite_code TEXT;
+    UPDATE groups SET invite_code='AJ-4821' WHERE id='g-aj4821' AND invite_code IS NULL;`);
 
   const PORT = process.env.PORT || 4000;
   const app = express();
@@ -306,10 +308,11 @@ async function main() {
         u = await q('SELECT * FROM users WHERE id=$1', [uid]);
       }
       const gid = `g-${now}`;
-      await q(`INSERT INTO groups (id, name, type, amount, size, frequency, payout_mode, status, rules) VALUES ($1,$2,'ROTATIONAL',$3,$4,$5,$6,'FORMING','{\"grace_hours\":48}')`,
-        [gid, name, amount, size || 10, frequency || 'Weekly', payout_mode || 'random']);
+      const icode = gid.slice(2, 8).toUpperCase();
+      await q(`INSERT INTO groups (id, name, type, amount, size, frequency, payout_mode, status, rules, invite_code) VALUES ($1,$2,'ROTATIONAL',$3,$4,$5,$6,'FORMING','{\"grace_hours\":48}',$7)`,
+        [gid, name, amount, size || 10, frequency || 'Weekly', payout_mode || 'random', icode]);
       await q(`INSERT INTO memberships (id, user_id, group_id, role, status) VALUES ($1,$2,$3,'admin','ACTIVE')`, [`m-${now}`, u[0].id, gid]);
-      res.json({ ok: true, group_id: gid, invite_code: gid.slice(2, 8).toUpperCase(), admin: u[0].ajocredit_id });
+      res.json({ ok: true, group_id: gid, invite_code: icode, admin: u[0].ajocredit_id });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
@@ -335,6 +338,29 @@ async function main() {
   });
   app.get('/api/groups/:id/members', async (req, res) => {
     res.json(await q(`SELECT m.id, m.role, m.payout_slot, m.status, u.name, u.ajocredit_id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.group_id=$1 ORDER BY m.payout_slot NULLS LAST`, [req.params.id]));
+  });
+
+  app.get('/api/groups/by-code/:code', async (req, res) => {
+    const g = await q(`SELECT g.*, (SELECT COUNT(*) FROM memberships m WHERE m.group_id=g.id AND m.status='ACTIVE') AS members FROM groups g WHERE UPPER(g.invite_code)=UPPER($1)`, [req.params.code]);
+    if (!g.length) return res.status(404).json({ error: 'no group with that code' });
+    res.json({ ok: true, group: g[0] });
+  });
+  app.post('/api/groups/:id/join', auth, async (req, res) => {
+    const { phone, name } = req.body || {};
+    if (!phone) return res.status(400).json({ error: 'phone required' });
+    try {
+      let u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
+      if (!u.length) {
+        const uid = `u-${Date.now()}`, aj = 'AJ-' + Math.floor(100000 + Math.random() * 900000);
+        await q(`INSERT INTO users (id, phone, name, verification, ajocredit_id, score, tier, provisional) VALUES ($1,$2,$3,'OTP',$4,250,'Bronze',TRUE)`, [uid, phone, name || 'Member', aj]);
+        u = await q('SELECT * FROM users WHERE id=$1', [uid]);
+      }
+      const ex = await q('SELECT id, status FROM memberships WHERE user_id=$1 AND group_id=$2', [u[0].id, req.params.id]);
+      if (ex.length) return res.json({ ok: true, status: ex[0].status, note: 'already requested' });
+      await q(`INSERT INTO memberships (id, user_id, group_id, role, status) VALUES ($1,$2,$3,'member','PENDING')`, [`m-${Date.now()}`, u[0].id, req.params.id]);
+      await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'group.join','membership',$3)`, [`al-${Date.now()}`, u[0].id, req.params.id]);
+      res.json({ ok: true, status: 'PENDING', note: 'admin approval pending' });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
   app.listen(PORT, '0.0.0.0', () => console.log(`AJOCREDIT API on :${PORT}`));

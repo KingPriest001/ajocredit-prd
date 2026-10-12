@@ -1,5 +1,7 @@
 # Alignment Log — 3 Companion Docs → Project (2026-10-03)
 
+> **V1-LIVE SCOPE LOCK (2026-10-12, founder decision):** AJOCREDIT holds no funds — groups/admins own all money movement (direct-settlement). DPCO engagement + counsel opinion deferred (no custody, no lending, no bureau activity, KYC-lite only). Passport sharing parked as in-app placeholder. Live surface: group create → invite links → join → monitor + contribute + disputes + score. Only gating items: live Paystack/Flutterwave keys + Termii Sender ID. Rest ships in later versions.
+
 Source docs (PDFs, pasted in chat): **Credit Scoring Methodology v1** · **Regulatory & Licensing Memo (Nigeria)** · **Functional Spec: Payout, Default & Dispute Edge Cases v1**. Status in all three: *Draft for review — not legal advice; validate with counsel.*
 
 ## Adopted (in this repo)
