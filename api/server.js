@@ -148,7 +148,8 @@ async function main() {
     const key = process.env.TERMII_API_KEY;
     if (!key || key === 'REPLACE_ME') return res.json({ ok: true, mode: 'mock', note: 'TERMII_API_KEY not set' });
     try {
-      const r = await fetch('https://v3.api.termii.com/api/sms/send', {
+      const termiiBase = (process.env.TERMII_BASE_URL || 'https://v3.api.termii.com').replace(/\/$/, '');
+      const r = await fetch(termiiBase + '/api/sms/send', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_key: key, to: phone.replace(/^\+/, ''), from: 'AJOCREDIT', sms: `Your AJOCREDIT code is ${code}. Expires in 5 minutes.`, type: 'plain', channel: 'generic' }),
       });
