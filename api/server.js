@@ -54,6 +54,18 @@ async function main() {
   const PAYS_MODE = process.env.PAYMENTS_MODE || 'direct';
   const PSK = () => process.env.PAYSTACK_SECRET_KEY || '';
   const PS_HDR = () => ({ Authorization: `Bearer ${PSK()}`, 'Content-Type': 'application/json' });
+  const FLW = () => process.env.FLUTTERWAVE_SECRET_KEY || '';
+  const FLW_HDR = () => ({ Authorization: `Bearer ${FLW()}`, 'Content-Type': 'application/json' });
+  // Shared confirm path for both PSPs: idempotent contribution + ledger + audit.
+  async function confirmContribution(md, ref, method) {
+    await db.query(`INSERT INTO contributions (id, membership_id, cycle_id, amount, fee, total, method, reference, status)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'CONFIRMED') ON CONFLICT (reference) DO NOTHING`,
+      [`ct-${Date.now()}`, md.membership_id, md.cycle_id, md.pot, md.fee, md.pot + md.fee, method, ref]);
+    await db.query(`INSERT INTO ledger_entries (id, group_id, debit_acct, credit_acct, amount, type, ref_id, idempotency_key, status, hash)
+      VALUES ($1,$2,$3,$4,$5,'contribution',$6,$7,'CONFIRMED',$8) ON CONFLICT (idempotency_key) DO NOTHING`,
+      [`le-${Date.now()}`, md.group_id, `psp:${method}`, `pot:${md.group_id}`, md.pot, ref, `webhook:${ref}`, `h${Date.now()}`]);
+    await db.query(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'webhook.confirm','contribution',$3)`, [`al-${Date.now()}`, method, ref]);
+  }
   const q = (t, p) => db.query(t, p).then((r) => r.rows);
 
   function feeFor(amount) {
@@ -236,15 +248,26 @@ async function main() {
     } catch (e) { res.status(502).json({ error: e.message }); }
   });
   app.post('/api/groups/:id/destination', auth, async (req, res) => {
-    const { bank_code, account_number } = req.body || {};
+    const { bank_code, account_number, provider } = req.body || {};
     if (!bank_code || !account_number) return res.status(400).json({ error: 'bank_code + account_number required' });
     try {
-      const r = await fetch(`https://api.paystack.co/bank/resolve?account_number=${account_number}&bank_code=${bank_code}`, { headers: PS_HDR() });
-      const j = await r.json();
-      if (!j.status) return res.status(422).json({ error: j.message || 'account could not be verified' });
+      let account_name;
+      if ((provider || 'paystack') === 'flutterwave') {
+        const r = await fetch('https://api.flutterwave.com/v3/accounts/resolve', {
+          method: 'POST', headers: FLW_HDR(), body: JSON.stringify({ account_number, account_bank: bank_code }),
+        });
+        const j = await r.json();
+        if (j.status !== 'success') return res.status(422).json({ error: j.message || 'account could not be verified' });
+        account_name = j.data.account_name;
+      } else {
+        const r = await fetch(`https://api.paystack.co/bank/resolve?account_number=${account_number}&bank_code=${bank_code}`, { headers: PS_HDR() });
+        const j = await r.json();
+        if (!j.status) return res.status(422).json({ error: j.message || 'account could not be verified' });
+        account_name = j.data.account_name;
+      }
       await db.query('UPDATE groups SET dest_bank_code=$1, dest_account_number=$2, dest_account_name=$3, dest_verified=TRUE WHERE id=$4',
-        [bank_code, account_number, j.data.account_name, req.params.id]);
-      res.json({ ok: true, account_name: j.data.account_name, mode: PAYS_MODE });
+        [bank_code, account_number, account_name, req.params.id]);
+      res.json({ ok: true, account_name, provider: provider || 'paystack', mode: PAYS_MODE });
     } catch (e) { res.status(502).json({ error: e.message }); }
   });
   app.post('/api/payments/init', async (req, res) => {
@@ -253,11 +276,50 @@ async function main() {
     const g = await q('SELECT * FROM groups WHERE id=$1', [group_id]);
     if (!g.length) return res.status(404).json({ error: 'group not found' });
     const { fee, total } = feeFor(amount);
-    res.json({ ok: true, mode: PAYS_MODE, amount, fee, total, amount_kobo: total * 100,
-      paystack_key: process.env.PAYSTACK_PUBLIC_KEY || null,
-      reference: `${group_id.slice(0, 8)}-C${cycle_id.slice(-2)}-${Date.now()}`,
-      destination: g[0].dest_verified ? { bank: g[0].dest_bank_code, account: '••' + String(g[0].dest_account_number).slice(-4), name: g[0].dest_account_name } : null,
-      metadata: { group_id, membership_id, cycle_id, pot: amount, fee } });
+    const reference = `AJO-${Date.now()}`;
+    const meta = { group_id, membership_id, cycle_id, pot: amount, fee };
+    const destination = g[0].dest_verified ? { bank: g[0].dest_bank_code, account: '••' + String(g[0].dest_account_number).slice(-4), name: g[0].dest_account_name } : null;
+    // Primary: Flutterwave hosted checkout link (v3 /payments). Backup: Paystack inline config.
+    try {
+      const r = await fetch('https://api.flutterwave.com/v3/payments', {
+        method: 'POST', headers: FLW_HDR(),
+        body: JSON.stringify({ tx_ref: reference, amount: total, currency: 'NGN',
+          redirect_url: 'https://ajocredit.netlify.app/index.html',
+          customer: { email: email || 'member@ajocredit.ng', name: 'Ajo Member' },
+          meta: meta, customizations: { title: 'AJOCREDIT Contribution' } }),
+      });
+      const j = await r.json();
+      if (j.status === 'success' && j.data && j.data.link) {
+        return res.json({ ok: true, provider: 'flutterwave', link: j.data.link, reference,
+          mode: PAYS_MODE, amount, fee, total, destination });
+      }
+      throw new Error((j && j.message) || 'flutterwave link failed');
+    } catch (e) {
+      return res.json({ ok: true, provider: 'paystack', mode: PAYS_MODE, amount, fee, total, amount_kobo: total * 100,
+        paystack_key: process.env.PAYSTACK_PUBLIC_KEY || null,
+        reference: `${group_id.slice(0, 8)}-C${cycle_id.slice(-2)}-${Date.now()}`,
+        destination, metadata: meta, backup_note: 'flutterwave unavailable: ' + e.message });
+    }
+  });
+  app.post('/webhooks/flutterwave', async (req, res) => {
+    const hash = req.headers['verif-hash'];
+    if (!process.env.FLW_WEBHOOK_HASH || hash !== process.env.FLW_WEBHOOK_HASH) {
+      return res.status(401).json({ error: 'bad webhook hash (set FLW_WEBHOOK_HASH + dashboard secret)' });
+    }
+    const ev = req.body || {};
+    const ok = ev.status === 'successful' || (ev.data && ev.data.status === 'successful');
+    const data = ev.data || ev;
+    const md = data.meta || data.metadata || {};
+    const ref = data.tx_ref || data.txRef || '';
+    try {
+      if (ok && ref) { await confirmContribution(md, ref, 'flutterwave'); res.json({ ok: true, confirmed: ref }); }
+      else { await db.query(`UPDATE contributions SET status='FAILED' WHERE reference=$1`, [ref]); res.json({ ok: true, marked_failed: ref }); }
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+  app.get('/api/payments/status/:reference', async (req, res) => {
+    const r = await q('SELECT reference, amount, fee, total, status FROM contributions WHERE reference=$1', [req.params.reference]);
+    if (!r.length) return res.json({ found: false });
+    res.json({ found: true, ...r[0] });
   });
   app.post('/webhooks/paystack', async (req, res) => {
     const sig = req.headers['x-paystack-signature'];
