@@ -1,0 +1,22 @@
+name: cloudflare
+on:
+  push:
+    branches: [main]
+    paths:
+      - "prototype/**"
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage site (exclude APK + local config)
+        run: mkdir -p cfdeploy && cp -r prototype/* cfdeploy/ && rm -f cfdeploy/ajocredit.apk cfdeploy/config.local.js
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy cfdeploy --project-name=ajocredit --commit-dirty=true
