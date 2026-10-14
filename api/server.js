@@ -75,6 +75,18 @@ async function main() {
     return { fee: Math.round(amount * rate), total: amount + Math.round(amount * rate) };
   }
   function tierFor(s) { return s >= 800 ? 'Platinum' : s >= 600 ? 'Gold' : s >= 350 ? 'Silver' : 'Bronze'; }
+  function normPhone(p) {
+    if (!p) return null;
+    p = String(p).replace(/[\s\-()]/g, '');
+    if (/^0[789][01]\d{8}$/.test(p)) return '+234' + p.slice(1);
+    if (/^234[789][01]\d{8}$/.test(p)) return '+' + p;
+    if (/^\+234[789][01]\d{8}$/.test(p)) return p;
+    return null;
+  }
+  async function isAdmin(userId, groupId) {
+    const r = await q(`SELECT id FROM memberships WHERE user_id=$1 AND group_id=$2 AND role='admin' AND status='ACTIVE'`, [userId, groupId]);
+    return r.length > 0;
+  }
 
   app.get('/health', async (req, res) => {
     try { await db.query('SELECT 1'); res.json({ ok: true, db: 'up', engine: process.env.USE_EXTERNAL_DB === '1' ? 'postgres-managed' : 'pglite-postgres' }); }
@@ -360,22 +372,52 @@ async function main() {
 
   app.post('/api/groups', auth, async (req, res) => {
     const { name, amount, size, frequency, payout_mode, admin_phone, admin_name } = req.body || {};
-    if (!name || !amount || !admin_phone) return res.status(400).json({ error: 'name, amount, admin_phone required' });
+    if (!name || String(name).trim().length < 3) return res.status(400).json({ error: 'group name needs at least 3 characters' });
+    if (!Number.isFinite(+amount) || +amount <= 0 || +amount > 10000000) return res.status(400).json({ error: 'amount must be between ₦1 and ₦10,000,000' });
+    const nsize = Math.min(30, Math.max(5, parseInt(size) || 10));
+    const phone = normPhone(admin_phone);
+    if (!phone) return res.status(400).json({ error: 'valid Nigerian phone required (e.g. 08031234567)' });
+    const aname = String(admin_name || '').trim();
+    if (aname.length < 2) return res.status(400).json({ error: 'your name is required' });
     try {
       const now = Date.now();
-      let u = await q('SELECT * FROM users WHERE phone=$1', [admin_phone]);
+      let u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
       if (!u.length) {
         const uid = `u-${now}`, aj = `AJ-${Math.floor(100000 + Math.random() * 900000)}`;
         await q(`INSERT INTO users (id, phone, name, verification, ajocredit_id, score, tier, provisional) VALUES ($1,$2,$3,'OTP',$4,250,'Bronze',TRUE)`,
-          [uid, admin_phone, admin_name || 'Member', aj]);
+          [uid, phone, aname, aj]);
         u = await q('SELECT * FROM users WHERE id=$1', [uid]);
       }
       const gid = `g-${now}`;
       const icode = gid.slice(2, 8).toUpperCase();
       await q(`INSERT INTO groups (id, name, type, amount, size, frequency, payout_mode, status, rules, invite_code) VALUES ($1,$2,'ROTATIONAL',$3,$4,$5,$6,'FORMING','{\"grace_hours\":48}',$7)`,
-        [gid, name, amount, size || 10, frequency || 'Weekly', payout_mode || 'random', icode]);
+        [gid, String(name).trim(), +amount, nsize, frequency || 'Weekly', payout_mode || 'random', icode]);
       await q(`INSERT INTO memberships (id, user_id, group_id, role, status) VALUES ($1,$2,$3,'admin','ACTIVE')`, [`m-${now}`, u[0].id, gid]);
+      await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'group.create','group',$3)`, [`al-${now}`, u[0].id, gid]);
       res.json({ ok: true, group_id: gid, invite_code: icode, admin: u[0].ajocredit_id });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+  app.get('/api/groups/:id/requests', auth, async (req, res) => {
+    const phone = normPhone((req.query || {}).admin_phone);
+    if (!phone) return res.status(400).json({ error: 'admin_phone required' });
+    const u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
+    if (!u.length || !(await isAdmin(u[0].id, req.params.id))) return res.status(403).json({ error: 'admin only' });
+    res.json(await q(`SELECT m.id, m.status, u.name, u.phone, u.ajocredit_id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.group_id=$1 AND m.status='PENDING' ORDER BY m.joined_at`, [req.params.id]));
+  });
+  app.post('/api/memberships/:id/decision', auth, async (req, res) => {
+    const { admin_phone, decision } = req.body || {};
+    if (decision !== 'approve' && decision !== 'reject') return res.status(400).json({ error: "decision must be 'approve' or 'reject'" });
+    const phone = normPhone(admin_phone);
+    if (!phone) return res.status(400).json({ error: 'admin_phone required' });
+    try {
+      const m = await q('SELECT * FROM memberships WHERE id=$1', [req.params.id]);
+      if (!m.length) return res.status(404).json({ error: 'request not found' });
+      const u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
+      if (!u.length || !(await isAdmin(u[0].id, m[0].group_id))) return res.status(403).json({ error: 'admin only' });
+      const st = decision === 'approve' ? 'ACTIVE' : 'REMOVED';
+      await q(`UPDATE memberships SET status=$1 WHERE id=$2`, [st, req.params.id]);
+      await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,$3,'membership',$4)`, [`al-${Date.now()}`, u[0].id, 'member.' + decision, req.params.id]);
+      res.json({ ok: true, status: st });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
@@ -409,13 +451,15 @@ async function main() {
     res.json({ ok: true, group: g[0] });
   });
   app.post('/api/groups/:id/join', auth, async (req, res) => {
-    const { phone, name } = req.body || {};
-    if (!phone) return res.status(400).json({ error: 'phone required' });
+    const phone = normPhone((req.body || {}).phone);
+    const name = String((req.body || {}).name || '').trim();
+    if (!phone) return res.status(400).json({ error: 'valid Nigerian phone required (e.g. 08031234567)' });
+    if (name.length < 2) return res.status(400).json({ error: 'your name is required' });
     try {
       let u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
       if (!u.length) {
         const uid = `u-${Date.now()}`, aj = 'AJ-' + Math.floor(100000 + Math.random() * 900000);
-        await q(`INSERT INTO users (id, phone, name, verification, ajocredit_id, score, tier, provisional) VALUES ($1,$2,$3,'OTP',$4,250,'Bronze',TRUE)`, [uid, phone, name || 'Member', aj]);
+        await q(`INSERT INTO users (id, phone, name, verification, ajocredit_id, score, tier, provisional) VALUES ($1,$2,$3,'OTP',$4,250,'Bronze',TRUE)`, [uid, phone, name, aj]);
         u = await q('SELECT * FROM users WHERE id=$1', [uid]);
       }
       const ex = await q('SELECT id, status FROM memberships WHERE user_id=$1 AND group_id=$2', [u[0].id, req.params.id]);
