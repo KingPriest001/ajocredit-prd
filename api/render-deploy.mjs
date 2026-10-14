@@ -12,7 +12,8 @@ fs.readFileSync(path.join(here, '..', '.env'), 'utf8').split('\n').forEach((l) =
 const RENDER_KEY = process.env.RENDER_API_KEY;
 if (!RENDER_KEY) { console.error('Set RENDER_API_KEY env first'); process.exit(1); }
 const H = { Authorization: `Bearer ${RENDER_KEY}`, 'Content-Type': 'application/json' };
-const NEON_POOLED = 'postgresql://neondb_owner:npg_YxzUFv73HBOK@ep-crimson-pine-b79z8eyt-pooler.c-13.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
+const NEON_POOLED = process.env.NEON_POOLED_URL || '';
+if (!NEON_POOLED) { console.error('Set NEON_POOLED_URL env first (pooled Neon connection string)'); process.exit(1); }
 
 const existing = await (await fetch('https://api.render.com/v1/services?type=web_service&limit=20', { headers: H })).json();
 const found = (Array.isArray(existing) ? existing : []).find((s) => s?.service?.name === 'ajocredit-api');

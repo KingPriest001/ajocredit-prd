@@ -7,12 +7,13 @@ fs.readFileSync(new URL('../.env', import.meta.url), 'utf8').split('\n').forEach
 const vars = [
   ['USE_EXTERNAL_DB', '1'],
   ['NODE_OPTIONS', '--max-old-space-size=384'],
-  ['DATABASE_URL', 'postgresql://neondb_owner:npg_YxzUFv73HBOK@ep-crimson-pine-b79z8eyt-pooler.c-13.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require'],
+  ['DATABASE_URL', process.env.NEON_POOLED_URL || ''],
   ['PAYSTACK_PUBLIC_KEY', env.PAYSTACK_PUBLIC_KEY],
   ['PAYSTACK_SECRET_KEY', env.PAYSTACK_SECRET_KEY],
   ['TERMII_API_KEY', env.TERMII_API_KEY],
   ['PAYMENTS_MODE', 'direct'],
 ].map(([key, value]) => ({ key, value }));
+if (vars.some((v) => !v.value)) { console.error('Missing value: set NEON_POOLED_URL env and fill local .env first'); process.exit(1); }
 const r = await fetch('https://api.render.com/v1/services/srv-db44g5e0tbcc73d3d7tg', {
   method: 'PATCH',
   headers: { Authorization: `Bearer ${process.env.RENDER_API_KEY}`, 'Content-Type': 'application/json' },
