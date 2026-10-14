@@ -175,7 +175,7 @@ async function main() {
       const termiiBase = (process.env.TERMII_BASE_URL || 'https://v3.api.termii.com').replace(/\/$/, '');
       const r = await fetch(termiiBase + '/api/sms/send', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: key, to: phone.replace(/^\+/, ''), from: 'AJOCREDIT', sms: `Your AJOCREDIT code is ${code}. Expires in 5 minutes.`, type: 'plain', channel: 'generic' }),
+        body: JSON.stringify({ api_key: key, to: phone.replace(/^\+/, ''), from: process.env.TERMII_SENDER_ID || 'AJOCREDIT', sms: `Your AJOCREDIT code is ${code}. Expires in 5 minutes.`, type: 'plain', channel: 'generic' }),
       });
       const j = await r.json();
       res.json({ ok: true, mode: 'live', termii: j.message_id || j.message || 'sent' });
