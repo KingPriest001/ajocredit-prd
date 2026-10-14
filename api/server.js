@@ -254,6 +254,11 @@ async function main() {
   // destination account (admin/recipient), never an AJOCREDIT balance. Pooled mode (custodian) is gated.
   app.get('/api/banks', async (req, res) => {
     try {
+      if ((req.query || {}).provider === 'flutterwave') {
+        const r = await fetch('https://api.flutterwave.com/v3/banks/NG', { headers: FLW_HDR() });
+        const j = await r.json();
+        return res.json(((j.data || j) instanceof Array ? (j.data || j) : []).map((b) => ({ name: b.name, code: String(b.code) })));
+      }
       const r = await fetch('https://api.paystack.co/bank?country=nigeria', { headers: PS_HDR() });
       const j = await r.json();
       res.json((j.data || []).map((b) => ({ name: b.name, code: b.code })));
