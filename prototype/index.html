@@ -318,6 +318,7 @@ var obStep=0;var obData=[['💰','Turn Your Ajo Into Credit','Save with people y
 function obShow(){var d=obData[obStep];document.getElementById('obem').innerText=d[0];document.getElementById('obtitle').innerText=d[1];document.getElementById('obbody').innerText=d[2];document.getElementById('obdots').innerText='●●●●'.slice(0,obStep+1)+'○○○'.slice(0,3-obStep);}
 function obNext(){if(obStep>=3){obSkip();return}obStep++;obShow();}
 function obSkip(){document.getElementById('ob').classList.remove('on');try{localStorage.setItem('ajo_ob','1')}catch(e){}}
+try{if(localStorage.getItem('ajo_ob'))document.getElementById('ob').classList.remove('on')}catch(e){}
 document.querySelectorAll('.chips').forEach(function(c){c.addEventListener('click',function(e){if(e.target.classList.contains('chip')){c.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));e.target.classList.add('on')}})});
 /* Live API (cloud first, localhost dev, mock fallback) — silent when offline */
 try{api('/api/score/AJ-774821').then(function(d){if(!d||!d.user)return;var t=document.querySelector('#s-credit svg text');if(t)t.textContent=d.user.score}).catch(function(){})}catch(e){}
