@@ -486,6 +486,13 @@ async function main() {
     res.json(await q(`SELECT m.id, m.role, m.payout_slot, m.status, u.name, u.ajocredit_id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.group_id=$1 ORDER BY m.payout_slot NULLS LAST`, [req.params.id]));
   });
 
+  app.get('/api/groups/mine', auth, async (req, res) => {
+    const phone = normPhone((req.query || {}).phone);
+    if (!phone) return res.status(400).json({ error: 'phone required' });
+    const u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
+    if (!u.length) return res.json([]);
+    res.json(await q(`SELECT g.id, g.name, g.invite_code, g.amount, g.frequency, m.role, m.status FROM memberships m JOIN groups g ON g.id=m.group_id WHERE m.user_id=$1 ORDER BY m.joined_at DESC`, [u[0].id]));
+  });
   app.get('/api/groups/by-code/:code', async (req, res) => {
     const g = await q(`SELECT g.*, (SELECT COUNT(*) FROM memberships m WHERE m.group_id=g.id AND m.status='ACTIVE') AS members FROM groups g WHERE UPPER(g.invite_code)=UPPER($1)`, [req.params.code]);
     if (!g.length) return res.status(404).json({ error: 'no group with that code' });
