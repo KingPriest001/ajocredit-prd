@@ -109,11 +109,11 @@ summary{font-weight:800;cursor:pointer}
 <!-- GROUP DETAILS -->
 <div class="screen" id="s-groups">
 <div class="appbar" style="padding:0 0 8px"><button class="back" onclick="go('home')">‹</button><b>Group details</b><button class="back" onclick="menuToggle()" aria-label="Menu">☰</button></div>
-<div class="ghead"><h3 style="margin:0" id="gName">Aunty Bola Market Women ✓</h3><div style="font-size:12px;opacity:.85" id="gMeta">AJ-4821 · Weekly · 20 members</div><div class="muted" style="color:#d6e5da;margin-top:10px;text-align:left">Current pot</div><div class="pot" style="text-align:left">₦100,000</div><div class="bar" style="background:rgba(255,255,255,.25)"><i style="width:75%;background:var(--gold)"></i></div><div class="row" style="margin-top:6px"><span style="font-size:12px;opacity:.85">15 of 20 members paid · 75%</span><span style="font-size:12px">Due May 26</span></div></div>
-<div class="card"><div class="stack"><span class="initials" style="background:#7C3AED">TO</span><span class="initials" style="background:#2563EB">CA</span><span class="initials" style="background:#9333EA">FN</span><span class="initials" style="background:#1E7A4C">+17</span><span class="muted" style="margin-left:auto">5 still to pay</span></div></div>
-<div class="card"><div class="muted">Next payout</div><div class="row"><span><b>Aunty Ngozi · 2 days 4 hrs</b></span><b>₦100,000</b></div></div>
-<div class="card"><div class="row"><svg class="ring" viewBox="0 0 52 52"><circle cx="26" cy="26" r="22" fill="none" stroke="#2c3f33" stroke-width="5"/><circle cx="26" cy="26" r="22" fill="none" stroke="#D9A441" stroke-width="5" stroke-dasharray="127 138" stroke-linecap="round" transform="rotate(-90 26 26)"/><text x="26" y="30" text-anchor="middle" font-size="12" font-weight="800" fill="#F5F5F2">92%</text></svg><div style="flex:1"><b>Gold trust level</b><div class="muted">High payment consistency and low disputes</div></div></div></div>
-<div class="card"><div class="row"><div><b>Group Health</b><div class="muted">Bodija Weekly at a glance</div></div><b style="font-size:24px;color:var(--success)">92%</b></div><div class="bar"><i class="g" style="width:92%"></i></div><div class="row" style="margin-top:8px"><span class="muted">Paid 15/20</span><span class="warn">Late 2</span><span class="muted">Disputes 1</span><span class="ok">Gold</span></div></div>
+<div class="ghead"><h3 style="margin:0" id="gName">Aunty Bola Market Women ✓</h3><div style="font-size:12px;opacity:.85" id="gMeta">AJ-4821 · Weekly · 20 members</div><div class="muted" style="color:#d6e5da;margin-top:10px;text-align:left">Current pot</div><div class="pot" style="text-align:left" id="gPot">…</div><div class="bar" style="background:rgba(255,255,255,.25)"><i id="gBar" style="width:0%;background:var(--gold)"></i></div><div class="row" style="margin-top:6px"><span style="font-size:12px;opacity:.85" id="gPaid">…</span><span style="font-size:12px" id="gDue">…</span></div></div>
+<div class="card"><div class="stack" id="gStack"><span class="muted">Loading members…</span></div></div>
+<div class="card"><div class="muted">Next payout</div><div class="row"><span><b id="payNextName">…</b></span><b id="payNextAmt">…</b></div></div>
+<div class="card"><div class="row"><svg class="ring" viewBox="0 0 52 52"><circle cx="26" cy="26" r="22" fill="none" stroke="#2c3f33" stroke-width="5"/><circle id="ringArc" cx="26" cy="26" r="22" fill="none" stroke="#D9A441" stroke-width="5" stroke-dasharray="0 138" stroke-linecap="round" transform="rotate(-90 26 26)"/><text id="ringPct" x="26" y="30" text-anchor="middle" font-size="12" font-weight="800" fill="#F5F5F2">…</text></svg><div style="flex:1"><b id="ringTier">Trust level</b><div class="muted" id="ringSub">Live group record</div></div></div></div>
+<div class="card"><div class="row"><div><b>Group Health</b><div class="muted" id="hSub">Live group record</div></div><b style="font-size:24px;color:var(--success)" id="hPct">…</b></div><div class="bar"><i class="g" id="hBar" style="width:0%"></i></div><div class="row" style="margin-top:8px"><span class="muted" id="hPaid">…</span><span class="muted" id="hDisp">…</span><span class="ok" id="hTier">…</span></div></div>
 <div class="muted"><b style="color:var(--txt)">Manage</b></div>
 <div class="qgrid">
 <button onclick="showMembers()"><span>👥</span>Members</button>
@@ -289,7 +289,55 @@ function myGroups(){try{return JSON.parse(localStorage.getItem('ajo_groups')||'[
 function saveMyGroup(id,code,name,role){var l=myGroups();if(!l.some(function(g){return g.id===id})){l.push({id:id,code:code,name:name,role:role||'member'});try{localStorage.setItem('ajo_groups',JSON.stringify(l))}catch(e){}}renderMyGroups()}
 function renderMyGroups(){var el=document.getElementById('myGroups');if(!el)return;var l=myGroups();if(!(l instanceof Array))l=[];l=l.filter(function(g){return g&&typeof g.id==='string'&&typeof g.code==='string'&&typeof g.name==='string'});var base=l.length?l:[{id:'g-aj4821',code:'AJ-4821',name:'Aunty Bola Market Women',role:'member'}];el.innerHTML=base.map(function(g){return '<div class="card" onclick="selectGroup(\''+g.id+'\',\''+g.code+'\',\''+g.name.replace(/'/g,'')+'\')" style="cursor:pointer;'+(g.id===currentGroup.id?'border-color:var(--gold)':'')+'"><b>'+g.name+'</b> <span class="muted">· '+g.code+' · '+(g.role==='admin'?'admin':'member')+'</span></div>'}).join('')}
 function selectGroup(id,code,name){setCurrentGroup(id,code,name);go('groups')}
-function renderGroupHeader(){var n=document.getElementById('gName'),m=document.getElementById('gMeta');if(n)n.innerText=currentGroup.name+' ✓';if(m)m.innerText=currentGroup.code+' · loading…';var rc=document.getElementById('rCtx');if(rc)rc.innerHTML='Showing requests for <b>'+currentGroup.name+'</b> · '+currentGroup.code+'. Wrong group? Pick it on Home first.';try{var sp=localStorage.getItem('ajo_phone')||'';['rqphone','mgphone','jphone'].forEach(function(id){var f=document.getElementById(id);if(f&&!f.value&&id!=='jphone')f.value=sp})}catch(e){}api('/api/groups/by-code/'+encodeURIComponent(currentGroup.code)).then(function(j){if(j&&j.ok&&m)m.innerText=j.group.invite_code+' · '+j.group.frequency+' · '+j.group.size+' members'})}
+function fmtDue(x){try{var d=new Date(x);if(isNaN(d))return '—';return 'Due '+d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}catch(e){return '—'}}
+function tierForPct(p){return p>=80?'Gold':(p>=50?'Silver':'Bronze')}
+function renderGroupLive(){
+  var gid=currentGroup.id, code=currentGroup.code;
+  Promise.all([
+    api('/api/groups/by-code/'+encodeURIComponent(code)),
+    api('/api/groups/'+gid+'/members'),
+    api('/api/groups/'+gid+'/ledger'),
+    api('/api/groups/'+gid+'/health')
+  ]).then(function(r){
+    var g=(r[0]&&r[0].ok)?r[0].group:null, m=(r[1]&&r[1].length)?r[1]:null,
+        rows=(r[2]&&r[2].length)?r[2]:null, h=r[3]||null;
+    if(!g||!m||!rows){groupLiveOffline();return}
+    var amt=Number(g.amount)||0, size=Number(g.size)||0, expected=amt*size;
+    var conf=rows.filter(function(e){return e.type==='contribution'&&e.status==='CONFIRMED'});
+    var collected=conf.reduce(function(s,e){return s+Number(e.amount||0)},0);
+    var act=m.filter(function(x){return x.status==='ACTIVE'});
+    var paidCount=conf.length, total=act.length||size||0;
+    var pct=expected>0?Math.min(100,Math.round(collected/expected*100)):0;
+    var tier=tierForPct(pct), n=function(x){return '₦'+Number(x).toLocaleString()};
+    var due=(r[0].cycle&&r[0].cycle.due_date)?fmtDue(r[0].cycle.due_date):'—';
+    var el=function(id){return document.getElementById(id)};
+    if(el('gPot'))el('gPot').innerText=n(collected)+' of '+n(expected);
+    if(el('gBar'))el('gBar').style.width=pct+'%';
+    if(el('gPaid'))el('gPaid').innerText=paidCount+' of '+total+' members paid · '+pct+'%';
+    if(el('gDue'))el('gDue').innerText=due;
+    var pal=['#7C3AED','#2563EB','#9333EA','#1E7A4C','#B45309','#0E7490'];
+    var faces=act.slice(0,3).map(function(x,i){var nm=String(x.name||'?').trim();var ini=(nm[0]||'?').toUpperCase()+((nm.split(' ')[1]||'')[0]||'').toUpperCase();return '<span class="initials" style="background:'+pal[i%pal.length]+'">'+ini+'</span>'}).join('');
+    var rest=act.length>3?'<span class="initials" style="background:#1E7A4C">+'+(act.length-3)+'</span>':'';
+    var togo=Math.max(0,total-paidCount);
+    if(el('gStack'))el('gStack').innerHTML=(faces+rest)+'<span class="muted" style="margin-left:auto">'+(togo>0?togo+' still to pay':'All paid up 🎉')+'</span>';
+    var ordered=act.filter(function(x){return x.payout_slot!=null}).sort(function(a,b){return a.payout_slot-b.payout_slot});
+    if(el('payNextName'))el('payNextName').innerText=ordered.length?('#'+ordered[0].payout_slot+' · '+ordered[0].name):'To be announced';
+    if(el('payNextAmt'))el('payNextAmt').innerText=n(expected);
+    if(el('ringPct'))el('ringPct').textContent=pct+'%';
+    var arc=el('ringArc');if(arc)arc.setAttribute('stroke-dasharray',(pct*1.38).toFixed(0)+' 138');
+    if(el('ringTier'))el('ringTier').innerText=tier+' trust level';
+    if(el('ringSub'))el('ringSub').innerText=paidCount+' of '+total+' paid · live record';
+    if(el('hPct'))el('hPct').innerText=pct+'%';
+    var hb=el('hBar');if(hb)hb.style.width=pct+'%';
+    if(el('hPaid'))el('hPaid').innerText='Paid '+paidCount+'/'+total;
+    var od=h?Number(h.open_disputes||0):0;
+    if(el('hDisp'))el('hDisp').innerText='Disputes '+od;
+    if(el('hTier'))el('hTier').innerText=tier;
+    if(el('hSub'))el('hSub').innerText=String(g.name||'')+' at a glance';
+  }).catch(function(){groupLiveOffline()});
+}
+function groupLiveOffline(){var ids=['gPot','gPaid','gDue','payNextName','payNextAmt','ringPct','ringTier','ringSub','hPct','hPaid','hDisp','hTier','hSub'];ids.forEach(function(id){var e=document.getElementById(id);if(e)e.innerText='—'});var s=document.getElementById('gStack');if(s)s.innerHTML='<span class="muted">Connect to load live record.</span>'}
+function renderGroupHeader(){var n=document.getElementById('gName'),m=document.getElementById('gMeta');if(n)n.innerText=currentGroup.name+' ✓';if(m)m.innerText=currentGroup.code+' · loading…';var rc=document.getElementById('rCtx');if(rc)rc.innerHTML='Showing requests for <b>'+currentGroup.name+'</b> · '+currentGroup.code+'. Wrong group? Pick it on Home first.';try{var sp=localStorage.getItem('ajo_phone')||'';['rqphone','mgphone','jphone'].forEach(function(id){var f=document.getElementById(id);if(f&&!f.value&&id!=='jphone')f.value=sp})}catch(e){}renderGroupLive();api('/api/groups/by-code/'+encodeURIComponent(currentGroup.code)).then(function(j){if(j&&j.ok&&m)m.innerText=j.group.invite_code+' · '+j.group.frequency+' · '+j.group.size+' members'})}
 var currentPay={amount:5000,fee:75,total:5075,cycle_id:'c-aj4821-1'};
 function feeTier(a){var r=a<10000?0.015:(a>100000?0.0075:0.01);var f=Math.round(a*r);return{fee:f,total:a+f,rate:r}}
 function renderPayHeader(){var rc=document.getElementById('rcpt');var fresh=!rc||rc.style.display!=='block';var pb0=document.getElementById('paybtn');if(fresh&&pb0){pb0.onclick=function(){pay()};pb0.disabled=false}var fl=document.getElementById('fail');if(fresh&&fl)fl.style.display='none';api('/api/groups/by-code/'+encodeURIComponent(currentGroup.code)).then(function(j){var d=j&&j.ok?j.group:null;var t=document.getElementById('payGroup');if(t)t.innerText=d?d.name:currentGroup.name;var el=document.getElementById('payDest');if(el)el.innerHTML=d&&d.dest_account_name?('Paying to: <b>'+d.dest_account_name+'</b> · '+d.dest_bank_code+' ••'+String(d.dest_account_number).slice(-4)):'Payout account not linked yet — ask your admin.';var amt=d&&Number(d.amount)>0?Number(d.amount):5000;var ft=feeTier(amt);currentPay={amount:amt,fee:ft.fee,total:ft.total,cycle_id:(j&&j.cycle&&j.cycle.id)||('c-'+currentGroup.id.slice(2)+'-1')};var n=function(x){return '₦'+Number(x).toLocaleString()};var e1=document.getElementById('payTop');if(e1)e1.innerText=n(amt);var e2=document.getElementById('payAmt');if(e2)e2.innerText=n(amt);var e3=document.getElementById('payFee');if(e3)e3.innerText=n(ft.fee);var e4=document.getElementById('payFeeLabel');if(e4)e4.innerText='Service fee ('+(ft.rate*100)+'%, paid separately)';var e5=document.getElementById('payTot');if(e5)e5.innerText=n(ft.total);var pn=document.getElementById('payNote');if(pn)pn.innerText='Your group gets the full '+n(amt)+' — the fee is charged on top.';var pb=document.getElementById('paybtn');if(pb&&fresh)pb.innerText='Pay '+n(ft.total)})}

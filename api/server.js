@@ -263,11 +263,11 @@ async function main() {
     try {
       let banks;
       if (pv === 'flutterwave') {
-        const r = await fetch('https://api.flutterwave.com/v3/banks/NG', { headers: FLW_HDR() });
+        const r = await fetch('https://api.flutterwave.com/v3/banks/NG', { headers: FLW_HDR(), signal: AbortSignal.timeout(15000) });
         const j = await r.json();
         banks = (((j.data || j) instanceof Array ? (j.data || j) : []).map((b) => ({ name: b.name, code: String(b.code) })));
       } else {
-        const r = await fetch('https://api.paystack.co/bank?country=nigeria', { headers: PS_HDR() });
+        const r = await fetch('https://api.paystack.co/bank?country=nigeria', { headers: PS_HDR(), signal: AbortSignal.timeout(15000) });
         const j = await r.json();
         banks = ((j.data || []).map((b) => ({ name: b.name, code: b.code })));
       }
@@ -286,13 +286,13 @@ async function main() {
       let account_name;
       if ((provider || 'paystack') === 'flutterwave') {
         const r = await fetch('https://api.flutterwave.com/v3/accounts/resolve', {
-          method: 'POST', headers: FLW_HDR(), body: JSON.stringify({ account_number, account_bank: bank_code }),
+          method: 'POST', headers: FLW_HDR(), signal: AbortSignal.timeout(20000), body: JSON.stringify({ account_number, account_bank: bank_code }),
         });
         const j = await r.json();
         if (j.status !== 'success') return res.status(422).json({ error: j.message || 'account could not be verified' });
         account_name = j.data.account_name;
       } else {
-        const r = await fetch(`https://api.paystack.co/bank/resolve?account_number=${account_number}&bank_code=${bank_code}`, { headers: PS_HDR() });
+        const r = await fetch(`https://api.paystack.co/bank/resolve?account_number=${account_number}&bank_code=${bank_code}`, { headers: PS_HDR(), signal: AbortSignal.timeout(20000) });
         const j = await r.json();
         if (!j.status) return res.status(422).json({ error: j.message || 'account could not be verified' });
         account_name = j.data.account_name;
@@ -300,7 +300,7 @@ async function main() {
       await db.query('UPDATE groups SET dest_bank_code=$1, dest_account_number=$2, dest_account_name=$3, dest_verified=TRUE WHERE id=$4',
         [bank_code, account_number, account_name, req.params.id]);
       res.json({ ok: true, account_name, provider: provider || 'paystack', mode: PAYS_MODE });
-    } catch (e) { res.status(502).json({ error: e.message }); }
+    } catch (e) { res.status(502).json({ error: 'Verification service timed out. Check the details and try again.' }); }
   });
   app.post('/api/payments/init', async (req, res) => {
     const { group_id, membership_id, cycle_id, amount, email } = req.body || {};
@@ -313,9 +313,10 @@ async function main() {
     const destination = g[0].dest_verified ? { bank: g[0].dest_bank_code, account: '••' + String(g[0].dest_account_number).slice(-4), name: g[0].dest_account_name } : null;
     if (!destination) return res.status(422).json({ ok: false, error: 'Payout account not linked yet — ask your admin to verify it before contributing.' });
     // Primary: Flutterwave hosted checkout link (v3 /payments). Backup: Paystack inline config.
+    // 20s cap on PSP calls: a hanging PSP must never wedge the client past its own timeout.
     try {
       const r = await fetch('https://api.flutterwave.com/v3/payments', {
-        method: 'POST', headers: FLW_HDR(),
+        method: 'POST', headers: FLW_HDR(), signal: AbortSignal.timeout(20000),
         body: JSON.stringify({ tx_ref: reference, amount: total, currency: 'NGN',
           redirect_url: process.env.FRONTEND_URL || 'https://ajocredit.pages.dev/index.html',
           customer: { email: email || 'member@ajocredit.ng', name: 'Ajo Member' },
