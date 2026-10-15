@@ -320,7 +320,7 @@ async function main() {
       const r = await fetch('https://api.flutterwave.com/v3/payments', {
         method: 'POST', headers: FLW_HDR(), signal: AbortSignal.timeout(20000),
         body: JSON.stringify({ tx_ref: reference, amount: total, currency: 'NGN',
-          redirect_url: process.env.FRONTEND_URL || 'https://ajocredit.pages.dev/index.html',
+          redirect_url: (process.env.FRONTEND_URL || 'https://ajocredit.pages.dev').replace(/\/$/, ''),
           customer: { email: email || 'member@ajocredit.ng', name: 'Ajo Member' },
           meta: meta, customizations: { title: 'AJOCREDIT Contribution' } }),
       });
