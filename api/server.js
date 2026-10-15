@@ -423,7 +423,7 @@ async function main() {
       await q(`INSERT INTO cycles (id, group_id, seq, due_date, pot_expected, pot_collected, status) VALUES ($1,$2,1,NOW() + INTERVAL '7 days',$3,0,'COLLECTING') ON CONFLICT (id) DO NOTHING`,
         [cid, gid, (+amount) * nsize]);
       await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'group.create','group',$3)`, [`al-${now}`, u[0].id, gid]);
-      res.json({ ok: true, group_id: gid, invite_code: icode, admin: u[0].ajocredit_id, cycle_id: cid });
+      res.json({ ok: true, group_id: gid, invite_code: icode, admin: u[0].ajocredit_id, user_id: u[0].id, cycle_id: cid });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
   app.get('/api/groups/:id/requests', auth, async (req, res) => {
@@ -451,14 +451,15 @@ async function main() {
   });
 
   app.post('/api/disputes', auth, async (req, res) => {
-    const { group_id, reference, note, category } = req.body || {};
+    const { group_id, reference, note, category, user_id } = req.body || {};
     if (!group_id || !reference) return res.status(400).json({ error: 'group_id, reference required' });
     try {
       const id = `d-${Date.now()}`;
+      const who = String(user_id || 'u-bola').slice(0, 32);
       await q(`INSERT INTO disputes (id, group_id, raised_by, category, status) VALUES ($1,$2,$3,$4,'OPEN')`,
-        [id, group_id, 'u-bola', category || 'non-payment']);
+        [id, group_id, who, category || 'non-payment']);
       await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'dispute.open','dispute',$3)`,
-        [`al-${Date.now()}`, 'u-bola', id]);
+        [`al-${Date.now()}`, who, id]);
       res.json({ ok: true, id, status: 'OPEN' });
     } catch (e) { res.status(500).json({ ok: false, error: 'Could not file dispute. Try again.' }); }
   });
@@ -513,10 +514,10 @@ async function main() {
         u = await q('SELECT * FROM users WHERE id=$1', [uid]);
       }
       const ex = await q('SELECT id, status FROM memberships WHERE user_id=$1 AND group_id=$2', [u[0].id, req.params.id]);
-      if (ex.length) return res.json({ ok: true, status: ex[0].status, note: 'already requested' });
+      if (ex.length) return res.json({ ok: true, status: ex[0].status, note: 'already requested', user_id: u[0].id, ajocredit_id: u[0].ajocredit_id });
       await q(`INSERT INTO memberships (id, user_id, group_id, role, status) VALUES ($1,$2,$3,'member','PENDING')`, [`m-${Date.now()}`, u[0].id, req.params.id]);
       await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'group.join','membership',$3)`, [`al-${Date.now()}`, u[0].id, req.params.id]);
-      res.json({ ok: true, status: 'PENDING', note: 'admin approval pending' });
+      res.json({ ok: true, status: 'PENDING', note: 'admin approval pending', user_id: u[0].id, ajocredit_id: u[0].ajocredit_id });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
