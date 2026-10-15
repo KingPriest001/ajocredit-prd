@@ -111,6 +111,8 @@ CREATE TABLE IF NOT EXISTS disputes (
   cycle_id TEXT REFERENCES cycles(id) ON DELETE SET NULL,
   raised_by TEXT NOT NULL,
   category TEXT NOT NULL,
+  reference TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
   evidence JSONB NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'OPEN',
   resolution TEXT,

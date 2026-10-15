@@ -44,6 +44,8 @@ async function main() {
     ALTER TABLE groups ADD COLUMN IF NOT EXISTS dest_account_name TEXT;
     ALTER TABLE groups ADD COLUMN IF NOT EXISTS dest_verified BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE groups ADD COLUMN IF NOT EXISTS invite_code TEXT;
+    ALTER TABLE disputes ADD COLUMN IF NOT EXISTS reference TEXT NOT NULL DEFAULT '';
+    ALTER TABLE disputes ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT '';
     UPDATE groups SET invite_code='AJ-4821' WHERE id='g-aj4821' AND invite_code IS NULL;`);
 
   const PORT = process.env.PORT || 4000;
@@ -456,12 +458,15 @@ async function main() {
     try {
       const id = `d-${Date.now()}`;
       const who = String(user_id || 'u-bola').slice(0, 32);
-      await q(`INSERT INTO disputes (id, group_id, raised_by, category, status) VALUES ($1,$2,$3,$4,'OPEN')`,
-        [id, group_id, who, category || 'non-payment']);
+      await q(`INSERT INTO disputes (id, group_id, raised_by, category, reference, note, status) VALUES ($1,$2,$3,$4,$5,$6,'OPEN')`,
+        [id, group_id, who, category || 'non-payment', String(reference || '').slice(0, 64), String(note || '').slice(0, 500)]);
       await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'dispute.open','dispute',$3)`,
         [`al-${Date.now()}`, who, id]);
       res.json({ ok: true, id, status: 'OPEN' });
     } catch (e) { res.status(500).json({ ok: false, error: 'Could not file dispute. Try again.' }); }
+  });
+  app.get('/api/disputes/group/:gid', auth, async (req, res) => {
+    res.json(await q(`SELECT id, group_id, raised_by, category, reference, note, status, created_at FROM disputes WHERE group_id=$1 ORDER BY created_at DESC LIMIT 20`, [req.params.gid]));
   });
   app.post('/api/disputes/:id/appeal', auth, async (req, res) => {
     try {
