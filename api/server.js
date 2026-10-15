@@ -254,17 +254,30 @@ async function main() {
 
   // Direct-settlement payments (PAYMENTS_MODE=direct): money settles to the group's own
   // destination account (admin/recipient), never an AJOCREDIT balance. Pooled mode (custodian) is gated.
+  // Bank lists are cached 12h in memory: keeps cold starts fast and survives PSP blips (serves stale).
+  const bankCache = new Map();
   app.get('/api/banks', async (req, res) => {
+    const pv = (req.query || {}).provider === 'flutterwave' ? 'flutterwave' : 'paystack';
+    const hit = bankCache.get(pv);
+    if (hit && Date.now() - hit.at < 12 * 60 * 60 * 1000) return res.json(hit.banks);
     try {
-      if ((req.query || {}).provider === 'flutterwave') {
+      let banks;
+      if (pv === 'flutterwave') {
         const r = await fetch('https://api.flutterwave.com/v3/banks/NG', { headers: FLW_HDR() });
         const j = await r.json();
-        return res.json(((j.data || j) instanceof Array ? (j.data || j) : []).map((b) => ({ name: b.name, code: String(b.code) })));
+        banks = (((j.data || j) instanceof Array ? (j.data || j) : []).map((b) => ({ name: b.name, code: String(b.code) })));
+      } else {
+        const r = await fetch('https://api.paystack.co/bank?country=nigeria', { headers: PS_HDR() });
+        const j = await r.json();
+        banks = ((j.data || []).map((b) => ({ name: b.name, code: b.code })));
       }
-      const r = await fetch('https://api.paystack.co/bank?country=nigeria', { headers: PS_HDR() });
-      const j = await r.json();
-      res.json((j.data || []).map((b) => ({ name: b.name, code: b.code })));
-    } catch (e) { res.status(502).json({ error: e.message }); }
+      if (banks && banks.length) bankCache.set(pv, { at: Date.now(), banks });
+      res.json(banks);
+    } catch (e) {
+      const stale = bankCache.get(pv);
+      if (stale) return res.json(stale.banks);
+      res.status(502).json({ error: 'Bank list temporarily unavailable. Try again.' });
+    }
   });
   app.post('/api/groups/:id/destination', auth, async (req, res) => {
     const { bank_code, account_number, provider } = req.body || {};
@@ -403,8 +416,13 @@ async function main() {
       await q(`INSERT INTO groups (id, name, type, amount, size, frequency, payout_mode, status, rules, invite_code) VALUES ($1,$2,'ROTATIONAL',$3,$4,$5,$6,'FORMING','{\"grace_hours\":48}',$7)`,
         [gid, String(name).trim(), +amount, nsize, frequency || 'Weekly', payout_mode || 'random', icode]);
       await q(`INSERT INTO memberships (id, user_id, group_id, role, status) VALUES ($1,$2,$3,'admin','ACTIVE')`, [`m-${now}`, u[0].id, gid]);
+      // Cycle 1 must exist at birth: contributions.cycle_id is a real FK — without this
+      // every later contribution/webhook confirm for a new group fails with FK violation.
+      const cid = `c-${gid.slice(2)}-1`;
+      await q(`INSERT INTO cycles (id, group_id, seq, due_date, pot_expected, pot_collected, status) VALUES ($1,$2,1,NOW() + INTERVAL '7 days',$3,0,'COLLECTING') ON CONFLICT (id) DO NOTHING`,
+        [cid, gid, (+amount) * nsize]);
       await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'group.create','group',$3)`, [`al-${now}`, u[0].id, gid]);
-      res.json({ ok: true, group_id: gid, invite_code: icode, admin: u[0].ajocredit_id });
+      res.json({ ok: true, group_id: gid, invite_code: icode, admin: u[0].ajocredit_id, cycle_id: cid });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
   app.get('/api/groups/:id/requests', auth, async (req, res) => {
@@ -471,7 +489,8 @@ async function main() {
   app.get('/api/groups/by-code/:code', async (req, res) => {
     const g = await q(`SELECT g.*, (SELECT COUNT(*) FROM memberships m WHERE m.group_id=g.id AND m.status='ACTIVE') AS members FROM groups g WHERE UPPER(g.invite_code)=UPPER($1)`, [req.params.code]);
     if (!g.length) return res.status(404).json({ error: 'no group with that code' });
-    res.json({ ok: true, group: g[0] });
+    const cy = await q(`SELECT id, seq, due_date, status FROM cycles WHERE group_id=$1 ORDER BY seq DESC LIMIT 1`, [g[0].id]);
+    res.json({ ok: true, group: g[0], cycle: cy[0] || null });
   });
   app.post('/api/groups/:id/join', auth, async (req, res) => {
     const phone = normPhone((req.body || {}).phone);

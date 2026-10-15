@@ -1,5 +1,5 @@
 /* AJOCREDIT PWA — app-shell offline cache */
-const VERSION = "ajo-v2";
+const VERSION = "ajo-v3";
 const SHELL = [
   "./",
   "./landing.html",
