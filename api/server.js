@@ -58,12 +58,13 @@ async function main() {
   const FLW_HDR = () => ({ Authorization: `Bearer ${FLW()}`, 'Content-Type': 'application/json' });
   // Shared confirm path for both PSPs: idempotent contribution + ledger + audit.
   async function confirmContribution(md, ref, method) {
+    const h = crypto.createHash('sha256').update(String(ref) + Date.now()).digest('hex').slice(0, 16);
     await db.query(`INSERT INTO contributions (id, membership_id, cycle_id, amount, fee, total, method, reference, status)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'CONFIRMED') ON CONFLICT (reference) DO NOTHING`,
       [`ct-${Date.now()}`, md.membership_id, md.cycle_id, md.pot, md.fee, md.pot + md.fee, method, ref]);
     await db.query(`INSERT INTO ledger_entries (id, group_id, debit_acct, credit_acct, amount, type, ref_id, idempotency_key, status, hash)
       VALUES ($1,$2,$3,$4,$5,'contribution',$6,$7,'CONFIRMED',$8) ON CONFLICT (idempotency_key) DO NOTHING`,
-      [`le-${Date.now()}`, md.group_id, `psp:${method}`, `pot:${md.group_id}`, md.pot, ref, `webhook:${ref}`, `h${Date.now()}`]);
+      [`le-${Date.now()}`, md.group_id, `psp:${method}`, `pot:${md.group_id}`, md.pot, ref, `webhook:${ref}`, h]);
     await db.query(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'webhook.confirm','contribution',$3)`, [`al-${Date.now()}`, method, ref]);
   }
   const q = (t, p) => db.query(t, p).then((r) => r.rows);
@@ -107,7 +108,7 @@ async function main() {
     const c = await q("SELECT COUNT(*) paid FROM contributions c JOIN cycles cy ON cy.id=c.cycle_id WHERE cy.group_id=$1 AND c.status='CONFIRMED'", [req.params.id]);
     const d = await q("SELECT COUNT(*) open FROM disputes WHERE group_id=$1 AND status NOT IN ('RESOLVED','CLOSED')", [req.params.id]);
     res.json({ group: g[0], memberships: m, paid_contributions: c[0].paid, open_disputes: d[0].open,
-      health: { pct: 92, paid: '15/20', late: 2, disputes: Number(d[0].open), trust: 'Gold' } });
+      health: { paid: c[0].paid, disputes: Number(d[0].open) } });
   });
 
   app.get('/api/groups/:id/ledger', async (req, res) => {
@@ -150,7 +151,7 @@ async function main() {
   app.get('/api/passport/:ajId', async (req, res) => {
     const u = await q('SELECT * FROM users WHERE ajocredit_id=$1', [req.params.ajId]);
     if (!u.length) return res.status(404).json({ error: 'not found' });
-    res.json({ name: u[0].name, ajocredit_id: u[0].ajocredit_id, score: u[0].score, tier: u[0].tier || tierFor(u[0].score), trust: 'Gold', reputation: '92% on-time · 1 group' });
+    res.json({ name: u[0].name, ajocredit_id: u[0].ajocredit_id, score: u[0].score, tier: u[0].tier || tierFor(u[0].score) });
   });
 
   // OTP via Termii (generic channel). In-memory codes (pilot scale): 6-digit, 5-min expiry, 5 fails → 15-min lock.
@@ -170,7 +171,7 @@ async function main() {
     const code = String(Math.floor(100000 + Math.random() * 900000));
     otpStore.set(phone, { ...rec, code, expires: Date.now() + 5 * 60 * 1000 });
     const key = process.env.TERMII_API_KEY;
-    if (!key || key === 'REPLACE_ME') return res.json({ ok: true, mode: 'mock', note: 'TERMII_API_KEY not set' });
+    if (!key || key === 'REPLACE_ME') return res.status(503).json({ ok: false, error: 'SMS service not configured. Try again later.' });
     try {
       const termiiBase = (process.env.TERMII_BASE_URL || 'https://v3.api.termii.com').replace(/\/$/, '');
       const r = await fetch(termiiBase + '/api/sms/send', {
@@ -217,19 +218,20 @@ async function main() {
   // WhatsApp Cloud API webhook (auto-response). Meta verifies with GET; messages arrive via POST.
   // Setup: Meta app → WhatsApp product → token (WHATSAPP_TOKEN) + Phone Number ID + webhook URL /webhooks/whatsapp + VERIFY_TOKEN. See docs/WHATSAPP.md.
   app.get('/webhooks/whatsapp', (req, res) => {
-    if (req.query['hub.verify_token'] === (process.env.WHATSAPP_VERIFY_TOKEN || 'ajocredit-verify')) return res.send(req.query['hub.challenge']);
+    if (!process.env.WHATSAPP_VERIFY_TOKEN) return res.sendStatus(403);
+    if (req.query['hub.verify_token'] === process.env.WHATSAPP_VERIFY_TOKEN) return res.send(req.query['hub.challenge']);
     res.sendStatus(403);
   });
   function waReply(text) {
     const t = (text || '').toLowerCase();
     const has = (...ws) => ws.some((w) => t.includes(w));
-    if (has('payout', 'collect', 'gbe owo')) return 'Next payout: Aunty Ngozi · ₦100,000 in 2 days 4 hrs. 15 of 20 paid. You will be notified immediately it lands.';
-    if (has('due', 'contribut', 'sanwo', 'next contribution')) return 'Your next contribution is ₦5,000 + ₦75 fee (Bodija Weekly). Due May 25 — 3 days left. Pay in the app or reply HELP.';
-    if (has('score', 'credit', 'power')) return 'Your Credit Power: ₦450,000 (ESTIMATED illustrative value). Silver · 80 points to Gold. Keep paying on time!';
+    if (has('payout', 'collect', 'gbe owo')) return 'Payout status is shared in your group before each cycle. You will be notified immediately it lands.';
+    if (has('due', 'contribut', 'sanwo', 'next contribution')) return 'Your next contribution and fee show in the app under Pay. Open the app or reply HELP.';
+    if (has('score', 'credit', 'power')) return 'Your Credit Power shows in the app under Credit with your tier and progress. Keep paying on time!';
     if (has('dispute', 'complaint', 'wahala')) return 'Sorry about that. Open the app → Account → Disputes, or describe it here with your Transaction ID. We respond within 24 hours.';
-    if (has('join', 'invite', 'code', 'darapo')) return 'Join with code AJ-4821 in the app, or ask your admin for a fresh invite. Welcome!';
+    if (has('join', 'invite', 'code', 'darapo')) return 'Join with your group invite code in the app, or ask your admin for a fresh invite. Welcome!';
     if (has('hello', 'hi', 'good', 'ebawo', 'kaabo')) return 'Welcome to AJOCREDIT! Ask about: DUE, PAYOUT, SCORE, DISPUTE, JOIN — or type HUMAN to reach support (Mon–Sat 8am–8pm).';
-    if (has('human', 'agent', 'person', 'eniyan')) return 'Noted — a human will reply here Mon–Sat 8am–8pm. For urgent money issues, call [support line].';
+    if (has('human', 'agent', 'person', 'eniyan')) return 'Noted — a human will reply here Mon–Sat 8am–8pm. For urgent money issues, reply with your Transaction ID.';
     return "Thanks! I handle DUE, PAYOUT, SCORE, DISPUTE, JOIN. Type HUMAN for a person (Mon–Sat 8am–8pm).";
   }
   app.post('/webhooks/whatsapp', async (req, res) => {
@@ -296,12 +298,13 @@ async function main() {
     const reference = `AJO-${Date.now()}`;
     const meta = { group_id, membership_id, cycle_id, pot: amount, fee };
     const destination = g[0].dest_verified ? { bank: g[0].dest_bank_code, account: '••' + String(g[0].dest_account_number).slice(-4), name: g[0].dest_account_name } : null;
+    if (!destination) return res.status(422).json({ ok: false, error: 'Payout account not linked yet — ask your admin to verify it before contributing.' });
     // Primary: Flutterwave hosted checkout link (v3 /payments). Backup: Paystack inline config.
     try {
       const r = await fetch('https://api.flutterwave.com/v3/payments', {
         method: 'POST', headers: FLW_HDR(),
         body: JSON.stringify({ tx_ref: reference, amount: total, currency: 'NGN',
-          redirect_url: 'https://ajocredit.netlify.app/index.html',
+          redirect_url: process.env.FRONTEND_URL || 'https://ajocredit.pages.dev/index.html',
           customer: { email: email || 'member@ajocredit.ng', name: 'Ajo Member' },
           meta: meta, customizations: { title: 'AJOCREDIT Contribution' } }),
       });
@@ -310,12 +313,13 @@ async function main() {
         return res.json({ ok: true, provider: 'flutterwave', link: j.data.link, reference,
           mode: PAYS_MODE, amount, fee, total, destination });
       }
-      throw new Error((j && j.message) || 'flutterwave link failed');
+      throw new Error('flutterwave link failed');
     } catch (e) {
+      if (!process.env.PAYSTACK_PUBLIC_KEY) return res.status(503).json({ ok: false, error: 'Payment service temporarily unavailable. Try again soon.' });
       return res.json({ ok: true, provider: 'paystack', mode: PAYS_MODE, amount, fee, total, amount_kobo: total * 100,
-        paystack_key: process.env.PAYSTACK_PUBLIC_KEY || null,
+        paystack_key: process.env.PAYSTACK_PUBLIC_KEY,
         reference: `${group_id.slice(0, 8)}-C${cycle_id.slice(-2)}-${Date.now()}`,
-        destination, metadata: meta, backup_note: 'flutterwave unavailable: ' + e.message });
+        destination, metadata: meta });
     }
   });
   app.post('/webhooks/flutterwave', async (req, res) => {
@@ -346,13 +350,14 @@ async function main() {
     if (ev.event === 'charge.success') {
       const md = ev.data?.metadata || {};
       const ref = ev.data?.reference || '';
+      const lh = crypto.createHmac('sha256', PSK() || 'ajocredit').update(String(ref)).digest('hex').slice(0, 16);
       try {
         await db.query(`INSERT INTO contributions (id, membership_id, cycle_id, amount, fee, total, method, reference, status)
           VALUES ($1,$2,$3,$4,$5,$6,'paystack',$7,'CONFIRMED') ON CONFLICT (reference) DO NOTHING`,
           [`ct-${Date.now()}`, md.membership_id, md.cycle_id, md.pot, md.fee, md.pot + md.fee, ref]);
         await db.query(`INSERT INTO ledger_entries (id, group_id, debit_acct, credit_acct, amount, type, ref_id, idempotency_key, status, hash)
           VALUES ($1,$2,'psp:paystack',$3,$4,'contribution',$5,$6,'CONFIRMED',$7) ON CONFLICT (idempotency_key) DO NOTHING`,
-          [`le-${Date.now()}`, md.group_id, `pot:${md.group_id}`, md.pot, ref, `webhook:${ref}`, `h${Date.now()}`]);
+          [`le-${Date.now()}`, md.group_id, `pot:${md.group_id}`, md.pot, ref, `webhook:${ref}`, lh]);
         await db.query(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,'paystack','webhook.confirm','contribution',$2)`, [`al-${Date.now()}`, ref]);
         res.json({ ok: true, confirmed: ref });
       } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
@@ -426,6 +431,18 @@ async function main() {
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
+  app.post('/api/disputes', auth, async (req, res) => {
+    const { group_id, reference, note, category } = req.body || {};
+    if (!group_id || !reference) return res.status(400).json({ error: 'group_id, reference required' });
+    try {
+      const id = `d-${Date.now()}`;
+      await q(`INSERT INTO disputes (id, group_id, raised_by, category, status) VALUES ($1,$2,$3,$4,'OPEN')`,
+        [id, group_id, 'u-bola', category || 'non-payment']);
+      await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'dispute.open','dispute',$3)`,
+        [`al-${Date.now()}`, 'u-bola', id]);
+      res.json({ ok: true, id, status: 'OPEN' });
+    } catch (e) { res.status(500).json({ ok: false, error: 'Could not file dispute. Try again.' }); }
+  });
   app.post('/api/disputes/:id/appeal', auth, async (req, res) => {
     try {
       const r = await q('UPDATE disputes SET status=$1 WHERE id=$2 RETURNING id, status', ['APPEAL', req.params.id]);
@@ -434,12 +451,13 @@ async function main() {
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
   app.post('/api/exits', auth, async (req, res) => {
-    const { group_id, user_id, kind } = req.body || {};
+    const { group_id, user_id, kind, replacement_name, replacement_phone } = req.body || {};
     if (!group_id || !user_id || !kind) return res.status(400).json({ error: 'group_id, user_id, kind (pre|post) required' });
     try {
       const ref = `EXIT-${Date.now()}`;
+      const extra = replacement_name ? ` Replacement: ${String(replacement_name).slice(0, 60)} ${String(replacement_phone || '').slice(0, 20)}.` : '';
       await q(`INSERT INTO notifications (id, user_id, kind, title, body) VALUES ($1,$2,'exit',$3,$4)`,
-        [`ex-${Date.now()}`, user_id, `Exit recorded (${kind}-payout)`, `Ref ${ref}. ${kind === 'post' ? 'Immediate default, review opened.' : 'Replacement invited, 7-day window.'}`]);
+        [`ex-${Date.now()}`, user_id, `Exit recorded (${kind}-payout)`, `Ref ${ref}. ${kind === 'post' ? 'Immediate default, review opened.' : 'Replacement invited, 7-day window.'}${extra}`]);
       if (kind === 'post') {
         await q(`INSERT INTO disputes (id, group_id, raised_by, category, status) VALUES ($1,$2,$3,'non-payment','OPEN')`, [`d-${Date.now()}`, group_id, user_id]);
       }
