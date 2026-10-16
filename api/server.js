@@ -61,12 +61,20 @@ async function main() {
   // Shared confirm path for both PSPs: idempotent contribution + ledger + audit.
   async function confirmContribution(md, ref, method) {
     const h = crypto.createHash('sha256').update(String(ref) + Date.now()).digest('hex').slice(0, 16);
+    const h2 = crypto.createHash('sha256').update('fee:' + String(ref) + Date.now()).digest('hex').slice(0, 16);
+    const fee = Math.max(0, Number(md.fee) || 0);
     await db.query(`INSERT INTO contributions (id, membership_id, cycle_id, amount, fee, total, method, reference, status)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'CONFIRMED') ON CONFLICT (reference) DO NOTHING`,
       [`ct-${Date.now()}`, md.membership_id, md.cycle_id, md.pot, md.fee, md.pot + md.fee, method, ref]);
     await db.query(`INSERT INTO ledger_entries (id, group_id, debit_acct, credit_acct, amount, type, ref_id, idempotency_key, status, hash)
       VALUES ($1,$2,$3,$4,$5,'contribution',$6,$7,'CONFIRMED',$8) ON CONFLICT (idempotency_key) DO NOTHING`,
       [`le-${Date.now()}`, md.group_id, `psp:${method}`, `pot:${md.group_id}`, md.pot, ref, `webhook:${ref}`, h]);
+    // Fee leg belongs to AJOCREDIT revenue — never to the admin/group pot.
+    if (fee > 0) {
+      await db.query(`INSERT INTO ledger_entries (id, group_id, debit_acct, credit_acct, amount, type, ref_id, idempotency_key, status, hash)
+        VALUES ($1,$2,$3,$4,$5,'fee',$6,$7,'CONFIRMED',$8) ON CONFLICT (idempotency_key) DO NOTHING`,
+        [`le-${Date.now()}f`, md.group_id, `member:${md.membership_id || 'unknown'}`, `revenue:ajocredit-fees`, fee, ref, `webhook:${ref}:fee`, h2]);
+    }
     await db.query(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'webhook.confirm','contribution',$3)`, [`al-${Date.now()}`, method, ref]);
   }
   const q = (t, p) => db.query(t, p).then((r) => r.rows);
@@ -305,10 +313,18 @@ async function main() {
     } catch (e) { res.status(502).json({ error: 'Verification service timed out. Check the details and try again.' }); }
   });
   app.post('/api/payments/init', async (req, res) => {
-    const { group_id, membership_id, cycle_id, amount, email } = req.body || {};
+    const { group_id, membership_id, cycle_id, amount, email, phone } = req.body || {};
     if (!group_id || !membership_id || !cycle_id || !amount) return res.status(400).json({ error: 'group_id, membership_id, cycle_id, amount required' });
     const g = await q('SELECT * FROM groups WHERE id=$1', [group_id]);
     if (!g.length) return res.status(404).json({ error: 'group not found' });
+    // Membership gate: a PENDING (unapproved) member must wait for the admin.
+    if (phone) {
+      const pu = await q('SELECT * FROM users WHERE phone=$1', [normPhone(phone) || phone]);
+      if (!pu.length) return res.status(403).json({ error: 'Join the group first, then pay.' });
+      const pm = await q('SELECT status FROM memberships WHERE user_id=$1 AND group_id=$2', [pu[0].id, group_id]);
+      if (!pm.length) return res.status(403).json({ error: 'Join the group first, then pay.' });
+      if (pm[0].status !== 'ACTIVE') return res.status(403).json({ error: 'Waiting for admin approval — you can pay once approved.' });
+    }
     const { fee, total } = feeFor(amount);
     const reference = `AJO-${Date.now()}`;
     const meta = { group_id, membership_id, cycle_id, pot: amount, fee };
@@ -367,6 +383,8 @@ async function main() {
       const md = ev.data?.metadata || {};
       const ref = ev.data?.reference || '';
       const lh = crypto.createHmac('sha256', PSK() || 'ajocredit').update(String(ref)).digest('hex').slice(0, 16);
+      const lh2 = crypto.createHmac('sha256', (PSK() || 'ajocredit') + 'fee').update(String(ref)).digest('hex').slice(0, 16);
+      const pfee = Math.max(0, Number(md.fee) || 0);
       try {
         await db.query(`INSERT INTO contributions (id, membership_id, cycle_id, amount, fee, total, method, reference, status)
           VALUES ($1,$2,$3,$4,$5,$6,'paystack',$7,'CONFIRMED') ON CONFLICT (reference) DO NOTHING`,
@@ -374,6 +392,11 @@ async function main() {
         await db.query(`INSERT INTO ledger_entries (id, group_id, debit_acct, credit_acct, amount, type, ref_id, idempotency_key, status, hash)
           VALUES ($1,$2,'psp:paystack',$3,$4,'contribution',$5,$6,'CONFIRMED',$7) ON CONFLICT (idempotency_key) DO NOTHING`,
           [`le-${Date.now()}`, md.group_id, `pot:${md.group_id}`, md.pot, ref, `webhook:${ref}`, lh]);
+        if (pfee > 0) {
+          await db.query(`INSERT INTO ledger_entries (id, group_id, debit_acct, credit_acct, amount, type, ref_id, idempotency_key, status, hash)
+            VALUES ($1,$2,$3,$4,$5,'fee',$6,$7,'CONFIRMED',$8) ON CONFLICT (idempotency_key) DO NOTHING`,
+            [`le-${Date.now()}f`, md.group_id, `member:${md.membership_id || 'unknown'}`, `revenue:ajocredit-fees`, pfee, ref, `webhook:${ref}:fee`, lh2]);
+        }
         await db.query(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,'paystack','webhook.confirm','contribution',$2)`, [`al-${Date.now()}`, ref]);
         res.json({ ok: true, confirmed: ref });
       } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
@@ -492,6 +515,57 @@ async function main() {
   app.get('/api/groups/:id/members', async (req, res) => {
     res.json(await q(`SELECT m.id, m.role, m.payout_slot, m.status, u.name, u.ajocredit_id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.group_id=$1 ORDER BY m.payout_slot NULLS LAST`, [req.params.id]));
   });
+  // Payout order engine: random draw (auditable shuffle), admin assignment, member voting.
+  app.post('/api/groups/:id/order', auth, async (req, res) => {
+    const { admin_phone, mode, order } = req.body || {};
+    if (mode !== 'random' && mode !== 'admin') return res.status(400).json({ error: "mode must be 'random' or 'admin'" });
+    const phone = normPhone(admin_phone);
+    if (!phone) return res.status(400).json({ error: 'admin_phone required' });
+    try {
+      const u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
+      if (!u.length || !(await isAdmin(u[0].id, req.params.id))) return res.status(403).json({ error: 'admin only' });
+      const act = await q(`SELECT id FROM memberships WHERE group_id=$1 AND status='ACTIVE' ORDER BY joined_at`, [req.params.id]);
+      if (!act.length) return res.status(422).json({ error: 'no active members yet' });
+      let seq;
+      if (mode === 'random') {
+        seq = act.map((x) => x.id);
+        for (let i = seq.length - 1; i > 0; i--) { const k = Math.floor(Math.random() * (i + 1)); const t = seq[i]; seq[i] = seq[k]; seq[k] = t; }
+      } else {
+        if (!(order instanceof Array) || order.length !== act.length) return res.status(400).json({ error: 'order must list every active member once' });
+        const have = {}; for (const x of act) have[x.id] = 1;
+        for (const id of order) { if (!have[id]) return res.status(400).json({ error: 'order lists an unknown member' }); }
+        if (new Set(order).size !== order.length) return res.status(400).json({ error: 'order lists a member twice' });
+        seq = order;
+      }
+      for (let i = 0; i < seq.length; i++) await q(`UPDATE memberships SET payout_slot=$1 WHERE id=$2`, [i + 1, seq[i]]);
+      await q(`UPDATE groups SET payout_mode=$1 WHERE id=$2`, [mode, req.params.id]);
+      await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,$3,'group',$4)`, [`al-${Date.now()}`, u[0].id, 'payout.order.' + mode, req.params.id]);
+      res.json({ ok: true, mode, slots: seq.length });
+    } catch (e) { res.status(500).json({ ok: false, error: 'Could not save order. Try again.' }); }
+  });
+  app.post('/api/groups/:id/vote', auth, async (req, res) => {
+    const { voter_phone, candidate_id } = req.body || {};
+    const phone = normPhone(voter_phone);
+    if (!phone || !candidate_id) return res.status(400).json({ error: 'voter_phone, candidate_id required' });
+    try {
+      const u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
+      if (!u.length) return res.status(403).json({ error: 'join the group first' });
+      const vm = await q(`SELECT id FROM memberships WHERE user_id=$1 AND group_id=$2 AND status='ACTIVE'`, [u[0].id, req.params.id]);
+      if (!vm.length) return res.status(403).json({ error: 'only active members vote' });
+      const cm = await q(`SELECT id FROM memberships WHERE id=$1 AND group_id=$2 AND status='ACTIVE'`, [candidate_id, req.params.id]);
+      if (!cm.length) return res.status(404).json({ error: 'candidate not in group' });
+      await q(`INSERT INTO votes (id, group_id, voter_membership_id, candidate_membership_id) VALUES ($1,$2,$3,$4)
+        ON CONFLICT (group_id, voter_membership_id) DO UPDATE SET candidate_membership_id=$4`,
+        [`v-${Date.now()}`, req.params.id, vm[0].id, candidate_id]);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ ok: false, error: 'Could not record vote. Try again.' }); }
+  });
+  app.get('/api/groups/:id/votes', async (req, res) => {
+    res.json(await q(`SELECT m.id AS membership_id, u.name, COUNT(v.id)::int AS votes
+      FROM memberships m JOIN users u ON u.id=m.user_id
+      LEFT JOIN votes v ON v.candidate_membership_id=m.id AND v.group_id=m.group_id
+      WHERE m.group_id=$1 AND m.status='ACTIVE' GROUP BY m.id, u.name ORDER BY COUNT(v.id) DESC, MIN(m.joined_at)`, [req.params.id]));
+  });
 
   app.get('/api/groups/mine', auth, async (req, res) => {
     const phone = normPhone((req.query || {}).phone);
@@ -520,8 +594,18 @@ async function main() {
       }
       const ex = await q('SELECT id, status FROM memberships WHERE user_id=$1 AND group_id=$2', [u[0].id, req.params.id]);
       if (ex.length) return res.json({ ok: true, status: ex[0].status, note: 'already requested', user_id: u[0].id, ajocredit_id: u[0].ajocredit_id });
-      await q(`INSERT INTO memberships (id, user_id, group_id, role, status) VALUES ($1,$2,$3,'member','PENDING')`, [`m-${Date.now()}`, u[0].id, req.params.id]);
+      const mid = `m-${Date.now()}`;
+      await q(`INSERT INTO memberships (id, user_id, group_id, role, status) VALUES ($1,$2,$3,'member','PENDING')`, [mid, u[0].id, req.params.id]);
       await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'group.join','membership',$3)`, [`al-${Date.now()}`, u[0].id, req.params.id]);
+      // Notify every active admin: approval happens in-app, never automatically.
+      try {
+        const admins = await q(`SELECT user_id FROM memberships WHERE group_id=$1 AND role='admin' AND status='ACTIVE'`, [req.params.id]);
+        const gnm = await q(`SELECT name FROM groups WHERE id=$1`, [req.params.id]);
+        for (const a of admins) {
+          await q(`INSERT INTO notifications (id, user_id, kind, title, body) VALUES ($1,$2,'join_request',$3,$4)`,
+            [`jn-${Date.now()}-${a.user_id.slice(-4)}`, a.user_id, `New join request`, `${u[0].name} (${u[0].phone}) wants to join ${gnm.length ? gnm[0].name : 'your group'}. Open Groups → Requests to approve.`]);
+        }
+      } catch (e) {}
       res.json({ ok: true, status: 'PENDING', note: 'admin approval pending', user_id: u[0].id, ajocredit_id: u[0].ajocredit_id });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });

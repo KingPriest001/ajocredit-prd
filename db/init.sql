@@ -66,6 +66,15 @@ CREATE TABLE IF NOT EXISTS contributions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS votes (
+  id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  voter_membership_id TEXT NOT NULL REFERENCES memberships(id) ON DELETE CASCADE,
+  candidate_membership_id TEXT NOT NULL REFERENCES memberships(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(group_id, voter_membership_id)
+);
+
 CREATE TABLE IF NOT EXISTS payouts (
   id TEXT PRIMARY KEY,
   group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
