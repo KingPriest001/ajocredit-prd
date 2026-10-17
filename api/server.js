@@ -76,6 +76,8 @@ async function main() {
         [`le-${Date.now()}f`, md.group_id, `member:${md.membership_id || 'unknown'}`, `revenue:ajocredit-fees`, fee, ref, `webhook:${ref}:fee`, h2]);
     }
     await db.query(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'webhook.confirm','contribution',$3)`, [`al-${Date.now()}`, method, ref]);
+    // Tell every active member — group activity is shared, not private.
+    await announceContribution(md, ref);
   }
   const q = (t, p) => db.query(t, p).then((r) => r.rows);
 
@@ -98,6 +100,60 @@ async function main() {
     const r = await q(`SELECT id FROM memberships WHERE user_id=$1 AND group_id=$2 AND role='admin' AND status='ACTIVE'`, [userId, groupId]);
     return r.length > 0;
   }
+  // Unique invite code: 6 random chars, DB-checked. Replaces gid.slice(2,8), a
+  // timestamp prefix that gave every group created in the same window ONE code,
+  // so by-code lookup could resolve to the wrong group.
+  const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
+  async function newInviteCode() {
+    for (let i = 0; i < 25; i++) {
+      let c = 'AJ-';
+      for (let k = 0; k < 5; k++) c += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
+      const dup = await q(`SELECT 1 FROM groups WHERE UPPER(invite_code)=UPPER($1)`, [c]);
+      if (!dup.length) return c;
+    }
+    throw new Error('could not generate a unique invite code — try again');
+  }
+  // Group activity notifications: every ACTIVE member sees contributions/payouts/etc.
+  async function notifyUser(userId, kind, title, body) {
+    try {
+      await q(`INSERT INTO notifications (id, user_id, kind, title, body) VALUES ($1,$2,$3,$4,$5)`,
+        [`nt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, userId, kind, String(title).slice(0, 80), String(body).slice(0, 200)]);
+    } catch (e) {}
+  }
+  async function notifyGroup(groupId, kind, title, body) {
+    try {
+      const ms = await q(`SELECT user_id FROM memberships WHERE group_id=$1 AND status='ACTIVE'`, [groupId]);
+      for (const m of ms) await notifyUser(m.user_id, kind, title, body);
+      return ms.length;
+    } catch (e) { return 0; }
+  }
+  // Announce a confirmed contribution to the whole group (webhook + manual paths).
+  async function announceContribution(md, ref) {
+    try {
+      if (!md || !md.group_id) return;
+      const info = await q(`SELECT g.name, g.size, cy.seq FROM groups g, cycles cy WHERE cy.id=$1 AND g.id=$2`, [md.cycle_id, md.group_id]);
+      const payer = md.membership_id ? await q(`SELECT u.name FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.id=$1`, [md.membership_id]) : [];
+      const paid = await q(`SELECT COUNT(*)::int AS n FROM contributions WHERE cycle_id=$1 AND status='CONFIRMED'`, [md.cycle_id]);
+      const gname = info.length ? info[0].name : 'your group';
+      const seq = info.length ? info[0].seq : '';
+      const size = info.length ? info[0].size : '?';
+      await notifyGroup(md.group_id, 'contribution', '💰 Contribution received',
+        `₦${Number(md.pot) || 0} confirmed${payer.length ? ' from ' + payer[0].name : ''}${ref ? ' (ref ' + String(ref).slice(0, 24) + ')' : ''} for ${gname} cycle ${seq} · ${paid.length ? paid[0].n : '?'} of ${size} members paid`);
+    } catch (e) {}
+  }
+  // Legacy timestamp-derived codes collide — keep the oldest group per code,
+  // regenerate the rest (one-time repair, then a unique index enforces it forever).
+  try {
+    const dups = await q(`SELECT UPPER(invite_code) AS c FROM groups WHERE invite_code IS NOT NULL GROUP BY UPPER(invite_code) HAVING COUNT(*) > 1`);
+    for (const d of dups) {
+      const rows = await q(`SELECT id FROM groups WHERE UPPER(invite_code)=UPPER($1) ORDER BY created_at, id`, [d.c]);
+      for (const r of rows.slice(1)) await q(`UPDATE groups SET invite_code=$1 WHERE id=$2`, [await newInviteCode(), r.id]);
+    }
+    await exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_invite_code ON groups (UPPER(invite_code));`);
+  } catch (e) { console.log('invite-code repair: ' + e.message); }
+  // Payout maker/checker audit columns (see /api/payouts/* below).
+  await exec(`ALTER TABLE payouts ADD COLUMN IF NOT EXISTS initiated_by TEXT;
+    ALTER TABLE payouts ADD COLUMN IF NOT EXISTS approved_by TEXT;`);
 
   app.get('/health', async (req, res) => {
     try { await db.query('SELECT 1'); res.json({ ok: true, db: 'up', engine: process.env.USE_EXTERNAL_DB === '1' ? 'postgres-managed' : 'pglite-postgres' }); }
@@ -144,6 +200,9 @@ async function main() {
       await q(`INSERT INTO contributions (id, membership_id, cycle_id, amount, fee, total, method, reference, status)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'CONFIRMED') ON CONFLICT (reference) DO NOTHING`,
         [`ct-${Date.now()}`, membership_id, cycle_id, amount, fee, total, method || 'transfer', reference]);
+      // Announce to the group (resolve group from the membership — manual path has no md).
+      const mm = await q('SELECT group_id FROM memberships WHERE id=$1', [membership_id]);
+      await announceContribution({ group_id: mm.length ? mm[0].group_id : null, cycle_id, membership_id, pot: amount }, reference);
       res.json({ ok: true, amount, fee, total });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
@@ -257,7 +316,12 @@ async function main() {
           body: JSON.stringify({ messaging_product: 'whatsapp', to: from, text: { body: reply } }),
         });
       }
-      try { await db.query(`INSERT INTO notifications (id, user_id, kind, title, body) VALUES ($1,$2,'whatsapp',\"WA in: \"||$3,$4)`, [`wa-${Date.now()}`, 'u-bola', text.slice(0, 60), reply.slice(0, 200)]); } catch (e) {}
+      // Log to the sender's notifications (resolve by phone; WhatsApp numbers arrive
+      // as bare international digits). Was: broken double-quoted SQL + hardcoded u-bola.
+      try {
+        const wu = await q('SELECT id FROM users WHERE phone=$1', [normPhone(from)]);
+        if (wu.length) await notifyUser(wu[0].id, 'whatsapp', 'WhatsApp: ' + text.slice(0, 40), reply.slice(0, 200));
+      } catch (e) {}
       res.json({ ok: true, reply, sent: Boolean(token && phoneId && msg) });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
@@ -438,7 +502,7 @@ async function main() {
         u = await q('SELECT * FROM users WHERE id=$1', [uid]);
       }
       const gid = `g-${now}`;
-      const icode = gid.slice(2, 8).toUpperCase();
+      const icode = await newInviteCode();
       await q(`INSERT INTO groups (id, name, type, amount, size, frequency, payout_mode, status, rules, invite_code) VALUES ($1,$2,'ROTATIONAL',$3,$4,$5,$6,'FORMING','{\"grace_hours\":48}',$7)`,
         [gid, String(name).trim(), +amount, nsize, frequency || 'Weekly', payout_mode || 'random', icode]);
       await q(`INSERT INTO memberships (id, user_id, group_id, role, status) VALUES ($1,$2,$3,'admin','ACTIVE')`, [`m-${now}`, u[0].id, gid]);
@@ -471,6 +535,17 @@ async function main() {
       const st = decision === 'approve' ? 'ACTIVE' : 'REMOVED';
       await q(`UPDATE memberships SET status=$1 WHERE id=$2`, [st, req.params.id]);
       await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,$3,'membership',$4)`, [`al-${Date.now()}`, u[0].id, 'member.' + decision, req.params.id]);
+      // Tell the member the outcome, and tell the group when someone joins.
+      const gname = await q('SELECT name FROM groups WHERE id=$1', [m[0].group_id]);
+      const gnameS = gname.length ? gname[0].name : 'the group';
+      if (decision === 'approve') {
+        const who = await q('SELECT name FROM users WHERE id=$1', [m[0].user_id]);
+        const wname = who.length ? who[0].name : 'A new member';
+        await notifyUser(m[0].user_id, 'joined', "You're in! ✅", `Your request to join ${gnameS} was approved. Contributions are open — tap Pay when due.`);
+        await notifyGroup(m[0].group_id, 'member', 'New member 👋', `${wname} joined ${gnameS}. Say welcome!`);
+      } else {
+        await notifyUser(m[0].user_id, 'join_rejected', 'Request not approved', `The admin did not approve your request to join ${gnameS}. You can request again or contact the admin.`);
+      }
       res.json({ ok: true, status: st });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
@@ -506,6 +581,11 @@ async function main() {
       const extra = replacement_name ? ` Replacement: ${String(replacement_name).slice(0, 60)} ${String(replacement_phone || '').slice(0, 20)}.` : '';
       await q(`INSERT INTO notifications (id, user_id, kind, title, body) VALUES ($1,$2,'exit',$3,$4)`,
         [`ex-${Date.now()}`, user_id, `Exit recorded (${kind}-payout)`, `Ref ${ref}. ${kind === 'post' ? 'Immediate default, review opened.' : 'Replacement invited, 7-day window.'}${extra}`]);
+      // The whole group feels an exit — tell every active member.
+      const eg = await q('SELECT name FROM groups WHERE id=$1', [group_id]);
+      const eu = await q('SELECT name FROM users WHERE id=$1', [user_id]);
+      await notifyGroup(group_id, 'exit', 'Member exit 🚪',
+        `${eu.length ? eu[0].name : 'A member'} recorded a ${kind === 'post' ? 'post' : 'pre'}-payout exit from ${eg.length ? eg[0].name : 'the group'}. Ref ${ref}.`);
       if (kind === 'post') {
         await q(`INSERT INTO disputes (id, group_id, raised_by, category, status) VALUES ($1,$2,$3,'non-payment','OPEN')`, [`d-${Date.now()}`, group_id, user_id]);
       }
@@ -609,6 +689,103 @@ async function main() {
       res.json({ ok: true, status: 'PENDING', note: 'admin approval pending', user_id: u[0].id, ajocredit_id: u[0].ajocredit_id });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
+
+  // ---------------- End-of-cycle payout (maker initiates, checker approves) ----------------
+  // Non-custodial: a payout records the group handing the pot to the cycle's
+  // beneficiary from the group's OWN bank account. Maker ≠ checker (THREAT-MODEL T5).
+  async function collectedPot(cycleId) {
+    const r = await q(`SELECT COALESCE(SUM(amount),0)::int AS pot FROM contributions WHERE cycle_id=$1 AND status='CONFIRMED'`, [cycleId]);
+    return r.length ? r[0].pot : 0;
+  }
+  app.get('/api/payouts/:groupId', auth, async (req, res) => {
+    try {
+      const cy = await q('SELECT * FROM cycles WHERE group_id=$1 ORDER BY seq DESC LIMIT 1', [req.params.groupId]);
+      if (!cy.length) return res.json({ ok: true, payout: null, cycle: null });
+      const p = await q('SELECT * FROM payouts WHERE cycle_id=$1', [cy[0].id]);
+      const ben = p.length ? await q('SELECT u.name FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.id=$1', [p[0].beneficiary_id]) : [];
+      res.json({ ok: true, cycle: cy[0], collected: await collectedPot(cy[0].id), payout: p[0] || null,
+        beneficiary_name: ben.length ? ben[0].name : null });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+  app.post('/api/payouts/initiate', auth, async (req, res) => {
+    const { group_id, cycle_id, maker_phone, beneficiary_membership_id, amount } = req.body || {};
+    const phone = normPhone(maker_phone);
+    if (!group_id) return res.status(400).json({ error: 'group_id required' });
+    if (!phone) return res.status(400).json({ error: 'maker_phone required' });
+    try {
+      const u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
+      if (!u.length || !(await isAdmin(u[0].id, group_id))) return res.status(403).json({ error: 'only a group admin can initiate a payout' });
+      const cy = cycle_id
+        ? await q('SELECT * FROM cycles WHERE id=$1 AND group_id=$2', [cycle_id, group_id])
+        : await q('SELECT * FROM cycles WHERE group_id=$1 ORDER BY seq DESC LIMIT 1', [group_id]);
+      if (!cy.length) return res.status(404).json({ error: 'no cycle found for this group' });
+      const cyc = cy[0];
+      // Beneficiary defaults to the next payout slot (frozen order, slot 1 first).
+      let ben = beneficiary_membership_id
+        ? await q(`SELECT * FROM memberships WHERE id=$1 AND group_id=$2 AND status='ACTIVE'`, [beneficiary_membership_id, group_id])
+        : await q(`SELECT * FROM memberships WHERE group_id=$1 AND status='ACTIVE' ORDER BY payout_slot NULLS LAST, joined_at LIMIT 1`, [group_id]);
+      if (!ben.length) return res.status(422).json({ error: 'no active member can receive this payout — set the payout order first' });
+      const pot = await collectedPot(cyc.id);
+      const amt = Number.isFinite(+amount) && +amount > 0 ? Math.floor(+amount) : pot;
+      // Guards: shortfall blocked, duplicate payout blocked.
+      if (pot <= 0) return res.status(409).json({ error: 'nothing collected for this cycle yet — payout blocked' });
+      if (amt > pot) return res.status(409).json({ error: `shortfall blocked: pot is ₦${pot.toLocaleString()}, cannot pay ₦${amt.toLocaleString()}` });
+      const dup = await q(`SELECT id, status FROM payouts WHERE idempotency_key=$1`, [`payout:${cyc.id}`]);
+      if (dup.length) return res.status(409).json({ error: `payout already ${dup[0].status.toLowerCase()} for this cycle`, payout_id: dup[0].id });
+      const pid = `po-${Date.now()}`;
+      await q(`INSERT INTO payouts (id, group_id, cycle_id, beneficiary_id, amount, status, idempotency_key, initiated_by) VALUES ($1,$2,$3,$4,$5,'PENDING',$6,$7)`,
+        [pid, group_id, cyc.id, ben[0].id, amt, `payout:${cyc.id}`, u[0].id]);
+      await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'payout.initiate','payout',$3)`, [`al-${Date.now()}`, u[0].id, pid]);
+      // All admins get pinged that a second pair of eyes is needed.
+      const bn = await q('SELECT u.name FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.id=$1', [ben[0].id]);
+      const admins = await q(`SELECT user_id FROM memberships WHERE group_id=$1 AND role='admin' AND status='ACTIVE'`, [group_id]);
+      for (const a of admins) await notifyUser(a.user_id, 'payout_pending', 'Payout awaiting approval ⏳',
+        `₦${amt.toLocaleString()} to ${bn.length ? bn[0].name : 'beneficiary'} (cycle ${cyc.seq}) is ready. A second person must approve — maker ≠ checker.`);
+      res.json({ ok: true, payout_id: pid, status: 'PENDING', amount: amt, beneficiary: bn.length ? bn[0].name : null,
+        note: 'awaiting a second approver (maker ≠ checker)' });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+  app.post('/api/payouts/approve', auth, async (req, res) => {
+    const { payout_id, checker_phone } = req.body || {};
+    const phone = normPhone(checker_phone);
+    if (!payout_id) return res.status(400).json({ error: 'payout_id required' });
+    if (!phone) return res.status(400).json({ error: 'checker_phone required' });
+    try {
+      const p = await q('SELECT * FROM payouts WHERE id=$1', [payout_id]);
+      if (!p.length) return res.status(404).json({ error: 'payout not found' });
+      const po = p[0];
+      if (po.status !== 'PENDING') return res.status(409).json({ error: `payout already ${po.status.toLowerCase()}` });
+      const u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
+      // Checker must be an active member of the group — and never the maker.
+      const cm = u.length ? await q(`SELECT id FROM memberships WHERE user_id=$1 AND group_id=$2 AND status='ACTIVE'`, [u[0].id, po.group_id]) : [];
+      if (!cm.length) return res.status(403).json({ error: 'checker must be an active member of the group' });
+      if (po.initiated_by && u[0].id === po.initiated_by) return res.status(403).json({ error: 'self-approve blocked — a different person must approve (maker ≠ checker)' });
+      // Re-check the shortfall at approval time (contributions may have been disputed).
+      const pot = await collectedPot(po.cycle_id);
+      if (po.amount > pot) return res.status(409).json({ error: `shortfall at approval: pot is ₦${pot.toLocaleString()}, payout ₦${po.amount.toLocaleString()} — blocked` });
+      const ben = await q('SELECT u.name, u.id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.id=$1', [po.beneficiary_id]);
+      await q(`UPDATE payouts SET status='APPROVED', approved_by=$1, executed_at=NOW() WHERE id=$2`, [u[0].id, po.id]);
+      await q(`INSERT INTO ledger_entries (id, group_id, debit_acct, credit_acct, amount, type, ref_id, idempotency_key, status, hash)
+        VALUES ($1,$2,$3,$4,$5,'payout',$6,$7,'CONFIRMED',$8) ON CONFLICT (idempotency_key) DO NOTHING`,
+        [`le-${Date.now()}p`, po.group_id, `pot:${po.group_id}`, `member:${po.beneficiary_id}`, po.amount, po.id, `payout:${po.id}`, `h${Date.now()}p`]);
+      await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'payout.approve','payout',$3)`, [`al-${Date.now()}`, u[0].id, po.id]);
+      // Close this cycle and open the next one (same cadence as the group's frequency).
+      await q(`UPDATE cycles SET status='PAID_OUT' WHERE id=$1`, [po.cycle_id]);
+      const g = await q('SELECT * FROM groups WHERE id=$1', [po.group_id]);
+      const days = /month/i.test(g[0].frequency) ? 28 : /day/i.test(g[0].frequency) ? 1 : 7;
+      const ncid = `c-${po.group_id.slice(2)}-${Number(cycSeq(po.cycle_id)) + 1}`;
+      await q(`INSERT INTO cycles (id, group_id, seq, due_date, pot_expected, pot_collected, status) VALUES ($1,$2,$3,NOW() + INTERVAL '${days} days',$4,0,'COLLECTING') ON CONFLICT (id) DO NOTHING`,
+        [ncid, po.group_id, Number(cycSeq(po.cycle_id)) + 1, g[0].amount * g[0].size]);
+      // Everyone hears about it: payout done + next cycle now open.
+      await notifyGroup(po.group_id, 'payout', '🎉 Payout completed',
+        `₦${po.amount.toLocaleString()} released to ${ben.length ? ben[0].name : 'the beneficiary'} (cycle ${cycSeq(po.cycle_id)}). Approved by a second member.`);
+      await notifyGroup(po.group_id, 'due', `Cycle ${Number(cycSeq(po.cycle_id)) + 1} is open`,
+        `₦${g[0].amount.toLocaleString()} due in ${days} days — pay early to keep your score. Next up: see Payout order.`);
+      res.json({ ok: true, status: 'APPROVED', payout_id: po.id, amount: po.amount,
+        beneficiary: ben.length ? ben[0].name : null, next_cycle_id: ncid });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+  function cycSeq(cycleId) { const m = String(cycleId).match(/-(\d+)$/); return m ? m[1] : '1'; }
 
   app.listen(PORT, '0.0.0.0', () => console.log(`AJOCREDIT API on :${PORT}`));
 }
