@@ -411,11 +411,19 @@ async function main() {
       }
       throw new Error('flutterwave link failed');
     } catch (e) {
-      if (!process.env.PAYSTACK_PUBLIC_KEY) return res.status(503).json({ ok: false, error: 'Payment service temporarily unavailable. Try again soon.' });
-      return res.json({ ok: true, provider: 'paystack', mode: PAYS_MODE, amount, fee, total, amount_kobo: total * 100,
-        paystack_key: process.env.PAYSTACK_PUBLIC_KEY,
-        reference: `${group_id.slice(0, 8)}-C${cycle_id.slice(-2)}-${Date.now()}`,
-        destination, metadata: meta });
+      // Fall back to Paystack ONLY when its key is live. A test key (pk_test_) must never be
+      // handed to a real member: they'd be sent to a checkout that can't take real money, and a
+      // test-mode webhook could confirm a contribution with no money behind it. Once
+      // PAYSTACK_PUBLIC_KEY is switched to pk_live_ this backup activates automatically.
+      const pk = process.env.PAYSTACK_PUBLIC_KEY || '';
+      if (pk.startsWith('pk_live_')) {
+        return res.json({ ok: true, provider: 'paystack', mode: PAYS_MODE, amount, fee, total, amount_kobo: total * 100,
+          paystack_key: pk,
+          reference: `${group_id.slice(0, 8)}-C${cycle_id.slice(-2)}-${Date.now()}`,
+          destination, metadata: meta });
+      }
+      // Flutterwave hiccup while Paystack isn't live yet: fail cleanly, never silently downgrade.
+      return res.json({ ok: false, error: 'Payment provider is busy — no charge was made. Please try again in a moment.' });
     }
   });
   app.post('/webhooks/flutterwave', async (req, res) => {
