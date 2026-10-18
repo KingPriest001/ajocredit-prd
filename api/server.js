@@ -100,6 +100,45 @@ async function main() {
     const r = await q(`SELECT id FROM memberships WHERE user_id=$1 AND group_id=$2 AND role='admin' AND status='ACTIVE'`, [userId, groupId]);
     return r.length > 0;
   }
+  // --- Identity binding (dual-mode) -----------------------------------------
+  // Every protected route used to trust a client-supplied phone (admin_phone,
+  // maker_phone, checker_phone, voter_phone) — so with auth off ANYONE could act
+  // as ANY member, e.g. re-point a group's payout account. These guards close
+  // that WITHOUT changing behavior while REQUIRE_AUTH is off (pilot). When it is
+  // '1', a session token is already required by `auth`, and the claimed identity
+  // must belong to that session — otherwise 401/403. Returns null to pass, or
+  // { status, error } to reject. One switch (REQUIRE_AUTH) enables/reverts all.
+  function authOn() { return process.env.REQUIRE_AUTH === '1'; }
+  async function bindPhone(req, claimed) {
+    if (!authOn()) return null;
+    if (!req.user) return { status: 401, error: 'sign in required' };
+    if (!claimed) return null;                       // route asserts no phone; session governs
+    const norm = normPhone(claimed);
+    if (!norm) return null;                          // let the route's own validation reject it
+    const u = await q('SELECT id FROM users WHERE phone=$1', [norm]);
+    if (!u.length || u[0].id !== req.user) return { status: 403, error: 'this must be done from your signed-in account' };
+    return null;
+  }
+  async function bindUser(req, claimed) {
+    if (!authOn()) return null;
+    if (!req.user) return { status: 401, error: 'sign in required' };
+    if (!claimed) return null;
+    if (String(claimed).slice(0, 32) !== req.user) return { status: 403, error: 'this must be done from your signed-in account' };
+    return null;
+  }
+  async function bindAdmin(req, groupId) {
+    if (!authOn()) return null;
+    if (!req.user) return { status: 401, error: 'sign in required' };
+    if (!(await isAdmin(req.user, groupId))) return { status: 403, error: 'only a group admin can do this' };
+    return null;
+  }
+  async function bindMember(req, membershipId) {
+    if (!authOn()) return null;
+    if (!req.user) return { status: 401, error: 'sign in required' };
+    const r = await q('SELECT id FROM memberships WHERE id=$1 AND user_id=$2', [membershipId, req.user]);
+    if (!r.length) return { status: 403, error: 'you can only act on your own membership' };
+    return null;
+  }
   // Unique invite code: 6 random chars, DB-checked. Replaces gid.slice(2,8), a
   // timestamp prefix that gave every group created in the same window ONE code,
   // so by-code lookup could resolve to the wrong group.
@@ -182,6 +221,10 @@ async function main() {
   });
 
   // Auth: Bearer session token. Enforced only when REQUIRE_AUTH=1 (pilot stays open, production locks).
+  // Clients poll /api/auth/config so the login gate turns on/off with the same switch — no app update needed.
+  app.get('/api/auth/config', (req, res) => {
+    res.json({ require_auth: authOn(), app: 'ajocredit' });
+  });
   async function auth(req, res, next) {
     if (process.env.REQUIRE_AUTH !== '1') { req.user = null; return next(); }
     const t = (req.headers.authorization || '').replace(/^Bearer /, '');
@@ -195,6 +238,8 @@ async function main() {
   app.post('/api/contributions', auth, async (req, res) => {
     const { membership_id, cycle_id, amount, method, reference } = req.body || {};
     if (!membership_id || !cycle_id || !amount || !reference) return res.status(400).json({ error: 'membership_id, cycle_id, amount, reference required' });
+    const cnb = await bindMember(req, membership_id);
+    if (cnb) return res.status(cnb.status).json({ error: cnb.error });
     const { fee, total } = feeFor(amount);
     try {
       await q(`INSERT INTO contributions (id, membership_id, cycle_id, amount, fee, total, method, reference, status)
@@ -354,6 +399,8 @@ async function main() {
     }
   });
   app.post('/api/groups/:id/destination', auth, async (req, res) => {
+    const gb = await bindAdmin(req, req.params.id);
+    if (gb) return res.status(gb.status).json({ error: gb.error });
     const { bank_code, account_number, provider } = req.body || {};
     if (!bank_code || !account_number) return res.status(400).json({ error: 'bank_code + account_number required' });
     try {
@@ -493,6 +540,8 @@ async function main() {
 
   app.post('/api/groups', auth, async (req, res) => {
     const { name, amount, size, frequency, payout_mode, admin_phone, admin_name } = req.body || {};
+    const ab = await bindPhone(req, admin_phone);
+    if (ab) return res.status(ab.status).json({ error: ab.error });
     if (!name || String(name).trim().length < 3) return res.status(400).json({ error: 'group name needs at least 3 characters' });
     if (!Number.isFinite(+amount) || +amount <= 0 || +amount > 10000000) return res.status(400).json({ error: 'amount must be between ₦1 and ₦10,000,000' });
     const nsize = Math.min(30, Math.max(5, parseInt(size) || 10));
@@ -525,6 +574,8 @@ async function main() {
   });
   app.get('/api/groups/:id/requests', auth, async (req, res) => {
     const phone = normPhone((req.query || {}).admin_phone);
+    const rb = await bindPhone(req, phone);
+    if (rb) return res.status(rb.status).json({ error: rb.error });
     if (!phone) return res.status(400).json({ error: 'admin_phone required' });
     const u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
     if (!u.length || !(await isAdmin(u[0].id, req.params.id))) return res.status(403).json({ error: 'admin only' });
@@ -534,6 +585,8 @@ async function main() {
     const { admin_phone, decision } = req.body || {};
     if (decision !== 'approve' && decision !== 'reject') return res.status(400).json({ error: "decision must be 'approve' or 'reject'" });
     const phone = normPhone(admin_phone);
+    const db2 = await bindPhone(req, phone);
+    if (db2) return res.status(db2.status).json({ error: db2.error });
     if (!phone) return res.status(400).json({ error: 'admin_phone required' });
     try {
       const m = await q('SELECT * FROM memberships WHERE id=$1', [req.params.id]);
@@ -561,6 +614,8 @@ async function main() {
   app.post('/api/disputes', auth, async (req, res) => {
     const { group_id, reference, note, category, user_id } = req.body || {};
     if (!group_id || !reference) return res.status(400).json({ error: 'group_id, reference required' });
+    const xb = await bindUser(req, user_id);
+    if (xb) return res.status(xb.status).json({ error: xb.error });
     try {
       const id = `d-${Date.now()}`;
       const who = String(user_id || 'u-bola').slice(0, 32);
@@ -584,6 +639,8 @@ async function main() {
   app.post('/api/exits', auth, async (req, res) => {
     const { group_id, user_id, kind, replacement_name, replacement_phone } = req.body || {};
     if (!group_id || !user_id || !kind) return res.status(400).json({ error: 'group_id, user_id, kind (pre|post) required' });
+    const eb = await bindUser(req, user_id);
+    if (eb) return res.status(eb.status).json({ error: eb.error });
     try {
       const ref = `EXIT-${Date.now()}`;
       const extra = replacement_name ? ` Replacement: ${String(replacement_name).slice(0, 60)} ${String(replacement_phone || '').slice(0, 20)}.` : '';
@@ -608,6 +665,8 @@ async function main() {
     const { admin_phone, mode, order } = req.body || {};
     if (mode !== 'random' && mode !== 'admin') return res.status(400).json({ error: "mode must be 'random' or 'admin'" });
     const phone = normPhone(admin_phone);
+    const ob = await bindPhone(req, phone);
+    if (ob) return res.status(ob.status).json({ error: ob.error });
     if (!phone) return res.status(400).json({ error: 'admin_phone required' });
     try {
       const u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
@@ -634,6 +693,8 @@ async function main() {
   app.post('/api/groups/:id/vote', auth, async (req, res) => {
     const { voter_phone, candidate_id } = req.body || {};
     const phone = normPhone(voter_phone);
+    const vb = await bindPhone(req, phone);
+    if (vb) return res.status(vb.status).json({ error: vb.error });
     if (!phone || !candidate_id) return res.status(400).json({ error: 'voter_phone, candidate_id required' });
     try {
       const u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
@@ -657,6 +718,8 @@ async function main() {
 
   app.get('/api/groups/mine', auth, async (req, res) => {
     const phone = normPhone((req.query || {}).phone);
+    const mb = await bindPhone(req, phone);
+    if (mb) return res.status(mb.status).json({ error: mb.error });
     if (!phone) return res.status(400).json({ error: 'phone required' });
     const u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
     if (!u.length) return res.json([]);
@@ -670,6 +733,8 @@ async function main() {
   });
   app.post('/api/groups/:id/join', auth, async (req, res) => {
     const phone = normPhone((req.body || {}).phone);
+    const jb = await bindPhone(req, phone);
+    if (jb) return res.status(jb.status).json({ error: jb.error });
     const name = String((req.body || {}).name || '').trim();
     if (!phone) return res.status(400).json({ error: 'valid Nigerian phone required (e.g. 08031234567)' });
     if (name.length < 2) return res.status(400).json({ error: 'your name is required' });
@@ -717,6 +782,8 @@ async function main() {
   });
   app.post('/api/payouts/initiate', auth, async (req, res) => {
     const { group_id, cycle_id, maker_phone, beneficiary_membership_id, amount } = req.body || {};
+    const pb = await bindPhone(req, maker_phone);
+    if (pb) return res.status(pb.status).json({ error: pb.error });
     const phone = normPhone(maker_phone);
     if (!group_id) return res.status(400).json({ error: 'group_id required' });
     if (!phone) return res.status(400).json({ error: 'maker_phone required' });
@@ -755,6 +822,8 @@ async function main() {
   });
   app.post('/api/payouts/approve', auth, async (req, res) => {
     const { payout_id, checker_phone } = req.body || {};
+    const cb = await bindPhone(req, checker_phone);
+    if (cb) return res.status(cb.status).json({ error: cb.error });
     const phone = normPhone(checker_phone);
     if (!payout_id) return res.status(400).json({ error: 'payout_id required' });
     if (!phone) return res.status(400).json({ error: 'checker_phone required' });
