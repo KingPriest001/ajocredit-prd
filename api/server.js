@@ -283,18 +283,55 @@ async function main() {
     const rec = otpStore.get(phone) || { fails: 0, lockedUntil: 0 };
     if (Date.now() < rec.lockedUntil) return res.status(429).json({ error: 'locked, try later' });
     const code = String(Math.floor(100000 + Math.random() * 900000));
+    const smsText = `Your AJOCREDIT code is ${code}. Expires in 5 minutes.`;
+    const termiiKey = process.env.TERMII_API_KEY;
+    const waToken = process.env.WHATSAPP_TOKEN, waPhoneId = process.env.WHATSAPP_PHONE_ID;
+    // Termii: send it, then check what Termii ACTUALLY said. A rejected send (e.g.
+    // no approved sender ID) must never be reported as "code sent" — that's how users
+    // get silently locked out. Returns { delivered, detail }.
+    async function sendViaTermii() {
+      if (!termiiKey || termiiKey === 'REPLACE_ME') return { delivered: false, detail: 'termii key not configured' };
+      try {
+        const termiiBase = (process.env.TERMII_BASE_URL || 'https://v3.api.termii.com').replace(/\/$/, '');
+        const r = await fetch(termiiBase + '/api/sms/send', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api_key: termiiKey, to: phone.replace(/^\+/, ''), from: process.env.TERMII_SENDER_ID || 'AJOCREDIT', sms: smsText, type: 'plain', channel: 'generic' }),
+        });
+        const j = await r.json().catch(() => ({}));
+        // Termii success: HTTP 200 + message_id. Rejections come back as status!=success / 4xx / SENDER_ID_*.
+        const delivered = r.ok && !!j.message_id && !/NOT_APPROVED|Validation|error/i.test(String(j.message || ''));
+        return { delivered, detail: j.message_id ? 'ok' : (j.message || j.error || `http ${r.status}`) };
+      } catch (e) { return { delivered: false, detail: e.message }; }
+    }
+    // WhatsApp Cloud API fallback (reuses the configured token/phone id from the webhook).
+    async function sendViaWhatsApp() {
+      if (!waToken || !waPhoneId) return { delivered: false, detail: 'whatsapp not configured' };
+      try {
+        const r = await fetch(`https://graph.facebook.com/v21.0/${waPhoneId}/messages`, {
+          method: 'POST', headers: { Authorization: `Bearer ${waToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messaging_product: 'whatsapp', to: phone.replace(/^\+/, ''), type: 'template', template: { name: 'ajocredit_otp', language: { code: 'en' }, components: [{ type: 'body', parameters: [{ type: 'text', text: code }] }] } }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok && j.messages && j.messages[0] && j.messages[0].id) return { delivered: true, detail: 'ok' };
+        // Template not approved yet → fall back to a plain text message (works for opt-in numbers).
+        const r2 = await fetch(`https://graph.facebook.com/v21.0/${waPhoneId}/messages`, {
+          method: 'POST', headers: { Authorization: `Bearer ${waToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messaging_product: 'whatsapp', to: phone.replace(/^\+/, ''), type: 'text', text: { body: smsText } }),
+        });
+        const j2 = await r2.json().catch(() => ({}));
+        return { delivered: !!(r2.ok && j2.messages && j2.messages[0] && j2.messages[0].id), detail: (j2.error && j2.error.message) || (j.error && j.error.message) || 'whatsapp send failed' };
+      } catch (e) { return { delivered: false, detail: e.message }; }
+    }
+    // Try Termii (primary) first; if it doesn't actually deliver, fall back to WhatsApp.
+    // Only store the code once something has REALLY gone out. If both fail, discard it
+    // and tell the truth so the login screen can't claim a code was sent.
+    let via = 'termii', res1 = await sendViaTermii();
+    if (!res1.delivered) { via = 'whatsapp'; res1 = await sendViaWhatsApp(); }
+    if (!res1.delivered) {
+      return res.status(503).json({ ok: false, error: 'Could not send code — messaging service unavailable. Please try again shortly.', detail: res1.detail });
+    }
     otpStore.set(phone, { ...rec, code, expires: Date.now() + 5 * 60 * 1000 });
-    const key = process.env.TERMII_API_KEY;
-    if (!key || key === 'REPLACE_ME') return res.status(503).json({ ok: false, error: 'SMS service not configured. Try again later.' });
-    try {
-      const termiiBase = (process.env.TERMII_BASE_URL || 'https://v3.api.termii.com').replace(/\/$/, '');
-      const r = await fetch(termiiBase + '/api/sms/send', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: key, to: phone.replace(/^\+/, ''), from: process.env.TERMII_SENDER_ID || 'AJOCREDIT', sms: `Your AJOCREDIT code is ${code}. Expires in 5 minutes.`, type: 'plain', channel: 'generic' }),
-      });
-      const j = await r.json();
-      res.json({ ok: true, mode: 'live', termii: j.message_id || j.message || 'sent' });
-    } catch (e) { res.status(502).json({ ok: false, error: e.message }); }
+    res.json({ ok: true, mode: via });
   });
   app.post('/api/otp/verify', async (req, res) => {
     const { phone, code, device_id } = req.body || {};
