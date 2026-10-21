@@ -307,19 +307,29 @@ async function main() {
     async function sendViaWhatsApp() {
       if (!waToken || !waPhoneId) return { delivered: false, detail: 'whatsapp not configured' };
       try {
+        // Template name + locale are env-tunable so a re-created/approved template
+        // can be pointed at without a redeploy. Default matches the AUTHENTICATION
+        // template we register as ajocredit_otp / en_US — Meta rejects any locale
+        // mismatch (e.g. sending 'en' against an 'en_US' template).
+        const tplName = process.env.WHATSAPP_OTP_TEMPLATE || 'ajocredit_otp';
+        const tplLang = process.env.WHATSAPP_OTP_LANG || 'en_US';
         const r = await fetch(`https://graph.facebook.com/v21.0/${waPhoneId}/messages`, {
           method: 'POST', headers: { Authorization: `Bearer ${waToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messaging_product: 'whatsapp', to: phone.replace(/^\+/, ''), type: 'template', template: { name: 'ajocredit_otp', language: { code: 'en' }, components: [{ type: 'body', parameters: [{ type: 'text', text: code }] }] } }),
+          body: JSON.stringify({ messaging_product: 'whatsapp', to: phone.replace(/^\+/, ''), type: 'template',
+            template: { name: tplName, language: { code: tplLang }, components: [{ type: 'body', parameters: [{ type: 'text', text: code }] }] } }),
         });
         const j = await r.json().catch(() => ({}));
         if (r.ok && j.messages && j.messages[0] && j.messages[0].id) return { delivered: true, detail: 'ok' };
-        // Template not approved yet → fall back to a plain text message (works for opt-in numbers).
+        // Template missing/unapproved → surface Meta's reason (never mask it as success).
+        const tplErr = (j.error && j.error.message) || '';
+        if (/template|language/i.test(tplErr)) return { delivered: false, detail: tplErr };
+        // Otherwise the recipient may have an open 24h session → plain text can deliver.
         const r2 = await fetch(`https://graph.facebook.com/v21.0/${waPhoneId}/messages`, {
           method: 'POST', headers: { Authorization: `Bearer ${waToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ messaging_product: 'whatsapp', to: phone.replace(/^\+/, ''), type: 'text', text: { body: smsText } }),
         });
         const j2 = await r2.json().catch(() => ({}));
-        return { delivered: !!(r2.ok && j2.messages && j2.messages[0] && j2.messages[0].id), detail: (j2.error && j2.error.message) || (j.error && j.error.message) || 'whatsapp send failed' };
+        return { delivered: !!(r2.ok && j2.messages && j2.messages[0] && j2.messages[0].id), detail: (j2.error && j2.error.message) || tplErr || 'whatsapp send failed' };
       } catch (e) { return { delivered: false, detail: e.message }; }
     }
     // Try Termii (primary) first; if it doesn't actually deliver, fall back to WhatsApp.
