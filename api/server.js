@@ -109,6 +109,10 @@ async function main() {
   // must belong to that session — otherwise 401/403. Returns null to pass, or
   // { status, error } to reject. One switch (REQUIRE_AUTH) enables/reverts all.
   function authOn() { return process.env.REQUIRE_AUTH === '1'; }
+  // require_login = show the account creation / sign-in page. ON by default; set
+  // REQUIRE_LOGIN=0 to hide it. Independent of the hard lock so the page can be
+  // live while the API is still open for the pilot.
+  function loginOn() { return process.env.REQUIRE_LOGIN !== '0'; }
   async function bindPhone(req, claimed) {
     if (!authOn()) return null;
     if (!req.user) return { status: 401, error: 'sign in required' };
@@ -152,12 +156,63 @@ async function main() {
     }
     throw new Error('could not generate a unique invite code — try again');
   }
+  // ---- Termii SMS: one sender config + one honest delivery check for EVERY SMS ----
+  // Shared by OTP and by notifications so both behave identically. Termii rejects sends
+  // when the sender ID isn't registered on the workspace, so we never report "sent"
+  // unless Termii actually accepted it (message_id present, no error text).
+  const TERMII_BASE = (process.env.TERMII_BASE_URL || 'https://v3.api.termii.com').replace(/\/$/, '');
+  const TERMII_KEY = process.env.TERMII_API_KEY;
+  const TERMII_FROM = process.env.TERMII_SENDER_ID || 'AJOCREDIT';
+  async function termiiSend(phone, text) {
+    if (!TERMII_KEY || TERMII_KEY === 'REPLACE_ME') return { delivered: false, detail: 'termii key not configured' };
+    try {
+      const r = await fetch(TERMII_BASE + '/api/sms/send', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: TERMII_KEY, to: String(phone).replace(/^\+/, ''), from: TERMII_FROM, sms: String(text), type: 'plain', channel: 'generic' }),
+      });
+      const j = await r.json().catch(() => ({}));
+      const delivered = r.ok && !!j.message_id && !/NOT_APPROVED|Validation|error/i.test(String(j.message || ''));
+      return { delivered, detail: j.message_id ? 'ok' : (j.message || j.error || `http ${r.status}`) };
+    } catch (e) { return { delivered: false, detail: e.message }; }
+  }
+  // SMS notification policy. The in-app notification is ALWAYS written; SMS is additive.
+  // Only low-frequency, decision-critical kinds get SMS — a 20-member group would
+  // otherwise cost 20 SMS for every contribution ping. Each member also has a daily
+  // cap so one busy group can't drain the SMS budget.
+  const SMS_KINDS = new Set((process.env.SMS_NOTIFY_KINDS || 'join_request,joined,join_rejected,payout_pending,exit')
+    .split(',').map((s) => s.trim()).filter(Boolean));
+  const SMS_MAX_PER_DAY = Math.max(0, parseInt(process.env.SMS_MAX_PER_DAY || '5', 10) || 0);
+  const smsBudget = new Map(); // userId -> { day, count }
+  function smsQuotaLeft(userId) {
+    if (SMS_MAX_PER_DAY <= 0) return false;
+    const day = new Date().toISOString().slice(0, 10);
+    const rec = smsBudget.get(userId);
+    if (!rec || rec.day !== day) { smsBudget.set(userId, { day, count: 0 }); return true; }
+    return rec.count < SMS_MAX_PER_DAY;
+  }
+  function smsQuotaUse(userId) {
+    const day = new Date().toISOString().slice(0, 10);
+    const rec = smsBudget.get(userId) || { day, count: 0 };
+    rec.count += 1; smsBudget.set(userId, rec);
+  }
   // Group activity notifications: every ACTIVE member sees contributions/payouts/etc.
   async function notifyUser(userId, kind, title, body) {
     try {
       await q(`INSERT INTO notifications (id, user_id, kind, title, body) VALUES ($1,$2,$3,$4,$5)`,
         [`nt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, userId, kind, String(title).slice(0, 80), String(body).slice(0, 200)]);
     } catch (e) {}
+    // SMS copy — fire and forget so a slow/failed provider never delays the caller's
+    // response, and a provider failure never breaks the in-app notification.
+    if (process.env.SMS_NOTIFY !== '0' && SMS_KINDS.has(kind) && smsQuotaLeft(userId)) {
+      try {
+        const u = await q('SELECT phone FROM users WHERE id=$1', [userId]);
+        if (u.length && u[0].phone) {
+          smsQuotaUse(userId);
+          const msg = `AJOCREDIT: ${String(title)} - ${String(body)}`.slice(0, 140);
+          termiiSend(u[0].phone, msg).then((r) => { if (!r.delivered) console.log(`sms-notify ${kind} failed: ${r.detail}`); });
+        }
+      } catch (e) {}
+    }
   }
   async function notifyGroup(groupId, kind, title, body) {
     try {
@@ -223,7 +278,7 @@ async function main() {
   // Auth: Bearer session token. Enforced only when REQUIRE_AUTH=1 (pilot stays open, production locks).
   // Clients poll /api/auth/config so the login gate turns on/off with the same switch — no app update needed.
   app.get('/api/auth/config', (req, res) => {
-    res.json({ require_auth: authOn(), app: 'ajocredit' });
+    res.json({ require_auth: authOn(), require_login: loginOn(), app: 'ajocredit' });
   });
   async function auth(req, res, next) {
     if (process.env.REQUIRE_AUTH !== '1') { req.user = null; return next(); }
@@ -242,13 +297,20 @@ async function main() {
     if (cnb) return res.status(cnb.status).json({ error: cnb.error });
     const { fee, total } = feeFor(amount);
     try {
-      await q(`INSERT INTO contributions (id, membership_id, cycle_id, amount, fee, total, method, reference, status)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'CONFIRMED') ON CONFLICT (reference) DO NOTHING`,
+      // RETURNING tells us whether a row was really inserted. A duplicate reference
+      // (webhook delivered twice, retry from a client) must NOT re-announce to the
+      // group and must be reported as a duplicate rather than a fresh contribution.
+      const ins = await q(`INSERT INTO contributions (id, membership_id, cycle_id, amount, fee, total, method, reference, status)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'CONFIRMED') ON CONFLICT (reference) DO NOTHING RETURNING id`,
         [`ct-${Date.now()}`, membership_id, cycle_id, amount, fee, total, method || 'transfer', reference]);
+      if (!ins.length) {
+        const ex = await q('SELECT id FROM contributions WHERE reference=$1', [reference]);
+        return res.json({ ok: true, duplicate: true, id: ex.length ? ex[0].id : null, amount, fee, total });
+      }
       // Announce to the group (resolve group from the membership — manual path has no md).
       const mm = await q('SELECT group_id FROM memberships WHERE id=$1', [membership_id]);
       await announceContribution({ group_id: mm.length ? mm[0].group_id : null, cycle_id, membership_id, pot: amount }, reference);
-      res.json({ ok: true, amount, fee, total });
+      res.json({ ok: true, id: ins[0].id, amount, fee, total });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
@@ -284,25 +346,11 @@ async function main() {
     if (Date.now() < rec.lockedUntil) return res.status(429).json({ error: 'locked, try later' });
     const code = String(Math.floor(100000 + Math.random() * 900000));
     const smsText = `Your AJOCREDIT code is ${code}. Expires in 5 minutes.`;
-    const termiiKey = process.env.TERMII_API_KEY;
     const waToken = process.env.WHATSAPP_TOKEN, waPhoneId = process.env.WHATSAPP_PHONE_ID;
     // Termii: send it, then check what Termii ACTUALLY said. A rejected send (e.g.
     // no approved sender ID) must never be reported as "code sent" — that's how users
-    // get silently locked out. Returns { delivered, detail }.
-    async function sendViaTermii() {
-      if (!termiiKey || termiiKey === 'REPLACE_ME') return { delivered: false, detail: 'termii key not configured' };
-      try {
-        const termiiBase = (process.env.TERMII_BASE_URL || 'https://v3.api.termii.com').replace(/\/$/, '');
-        const r = await fetch(termiiBase + '/api/sms/send', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ api_key: termiiKey, to: phone.replace(/^\+/, ''), from: process.env.TERMII_SENDER_ID || 'AJOCREDIT', sms: smsText, type: 'plain', channel: 'generic' }),
-        });
-        const j = await r.json().catch(() => ({}));
-        // Termii success: HTTP 200 + message_id. Rejections come back as status!=success / 4xx / SENDER_ID_*.
-        const delivered = r.ok && !!j.message_id && !/NOT_APPROVED|Validation|error/i.test(String(j.message || ''));
-        return { delivered, detail: j.message_id ? 'ok' : (j.message || j.error || `http ${r.status}`) };
-      } catch (e) { return { delivered: false, detail: e.message }; }
-    }
+    // get silently locked out. Shares the helper with notifications.
+    async function sendViaTermii() { return termiiSend(phone, smsText); }
     // WhatsApp Cloud API fallback (reuses the configured token/phone id from the webhook).
     async function sendViaWhatsApp() {
       if (!waToken || !waPhoneId) return { delivered: false, detail: 'whatsapp not configured' };
@@ -344,7 +392,7 @@ async function main() {
     res.json({ ok: true, mode: via });
   });
   app.post('/api/otp/verify', async (req, res) => {
-    const { phone, code, device_id } = req.body || {};
+    const { phone, code, device_id, name } = req.body || {};
     const rec = otpStore.get(phone);
     if (!rec || !rec.code) return res.status(400).json({ error: 'no code sent' });
     if (Date.now() > rec.expires) return res.status(401).json({ error: 'expired' });
@@ -358,7 +406,10 @@ async function main() {
       let u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
       if (!u.length) {
         const uid = `u-${Date.now()}`, aj = 'AJ-' + Math.floor(100000 + Math.random() * 900000);
-        await q(`INSERT INTO users (id, phone, name, verification, ajocredit_id, score, tier, provisional) VALUES ($1,$2,'New Member','OTP',$3,250,'Bronze',TRUE)`, [uid, phone, aj]);
+        // Account creation: the first successful OTP for a phone creates the member.
+        // Name is optional — fall back to a neutral placeholder.
+        const nm = String(name || '').trim().slice(0, 60) || 'New Member';
+        await q(`INSERT INTO users (id, phone, name, verification, ajocredit_id, score, tier, provisional) VALUES ($1,$2,$3,'OTP',$4,250,'Bronze',TRUE)`, [uid, phone, nm, aj]);
         u = await q('SELECT * FROM users WHERE id=$1', [uid]);
       }
       if (device_id) {
@@ -691,8 +742,8 @@ async function main() {
     try {
       const ref = `EXIT-${Date.now()}`;
       const extra = replacement_name ? ` Replacement: ${String(replacement_name).slice(0, 60)} ${String(replacement_phone || '').slice(0, 20)}.` : '';
-      await q(`INSERT INTO notifications (id, user_id, kind, title, body) VALUES ($1,$2,'exit',$3,$4)`,
-        [`ex-${Date.now()}`, user_id, `Exit recorded (${kind}-payout)`, `Ref ${ref}. ${kind === 'post' ? 'Immediate default, review opened.' : 'Replacement invited, 7-day window.'}${extra}`]);
+      await notifyUser(user_id, 'exit', `Exit recorded (${kind}-payout)`,
+        `Ref ${ref}. ${kind === 'post' ? 'Immediate default, review opened.' : 'Replacement invited, 7-day window.'}${extra}`);
       // The whole group feels an exit — tell every active member.
       const eg = await q('SELECT name FROM groups WHERE id=$1', [group_id]);
       const eu = await q('SELECT name FROM users WHERE id=$1', [user_id]);
@@ -791,6 +842,11 @@ async function main() {
         const uid = `u-${Date.now()}`, aj = 'AJ-' + Math.floor(100000 + Math.random() * 900000);
         await q(`INSERT INTO users (id, phone, name, verification, ajocredit_id, score, tier, provisional) VALUES ($1,$2,$3,'OTP',$4,250,'Bronze',TRUE)`, [uid, phone, name, aj]);
         u = await q('SELECT * FROM users WHERE id=$1', [uid]);
+      } else if ((u[0].name || '') === 'New Member' && name.length >= 2) {
+        // Account was created by OTP with a placeholder name — adopt the first real
+        // name the member gives us. Never overwrite a name they've already set.
+        await q('UPDATE users SET name=$1 WHERE id=$2', [String(name).slice(0, 60), u[0].id]);
+        u = await q('SELECT * FROM users WHERE id=$1', [u[0].id]);
       }
       const ex = await q('SELECT id, status FROM memberships WHERE user_id=$1 AND group_id=$2', [u[0].id, req.params.id]);
       if (ex.length) return res.json({ ok: true, status: ex[0].status, note: 'already requested', user_id: u[0].id, ajocredit_id: u[0].ajocredit_id });
@@ -802,8 +858,8 @@ async function main() {
         const admins = await q(`SELECT user_id FROM memberships WHERE group_id=$1 AND role='admin' AND status='ACTIVE'`, [req.params.id]);
         const gnm = await q(`SELECT name FROM groups WHERE id=$1`, [req.params.id]);
         for (const a of admins) {
-          await q(`INSERT INTO notifications (id, user_id, kind, title, body) VALUES ($1,$2,'join_request',$3,$4)`,
-            [`jn-${Date.now()}-${a.user_id.slice(-4)}`, a.user_id, `New join request`, `${u[0].name} (${u[0].phone}) wants to join ${gnm.length ? gnm[0].name : 'your group'}. Open Groups → Requests to approve.`]);
+          await notifyUser(a.user_id, 'join_request', 'New join request',
+            `${u[0].name} (${u[0].phone}) wants to join ${gnm.length ? gnm[0].name : 'your group'}. Open Groups → Requests to approve.`);
         }
       } catch (e) {}
       res.json({ ok: true, status: 'PENDING', note: 'admin approval pending', user_id: u[0].id, ajocredit_id: u[0].ajocredit_id });

@@ -229,6 +229,7 @@ summary{font-weight:800;cursor:pointer}
 <div class="screen" id="s-account">
 <div class="card"><div class="row"><div><b id="accName">Member ✓</b><div class="muted" id="accMeta">Your profile appears here once linked.</div></div><img class="avatar" src="photos/trader-hero.jfif" alt="Profile"></div>
 <div class="muted" id="accSince"></div></div>
+<div class="card" id="accSigninCard" style="display:none"><div class="row"><div><b>🔐 Sign in to AJOCREDIT</b><div class="muted">Create your account or sign in with your phone number.</div></div><button class="btn green" style="width:auto;margin:0;padding:14px 20px" onclick="authShowGate()">Sign in</button></div></div>
 <div class="card"><b>🏛 AJOCREDIT Passport</b><div class="passport"><div class="row"><img class="avatar" src="photos/trader-hero.jfif" alt="You"><div style="flex:1"><b id="ppName">Member</b><div style="font-size:12px;opacity:.9" id="ppSub">—</div></div><b id="ppScore">—</b></div><div style="font-size:12px;opacity:.9;margin-top:6px" id="ppTier">Score and tier appear here once linked.</div><div style="font-size:11px;opacity:.85;text-align:center">Verifiable sharing unlocks after licensing</div></div><div style="text-align:center"><p class="note">Your history is building safely underneath. Sharing with lenders arrives after licensing.</p></div></div>
 <select id="langsel" onchange="setLang(this.value)"><option value="pg">Pidgin</option><option value="en">English</option><option value="yo">Yoruba</option><option value="ha">Hausa</option><option value="ig">Igbo</option></select></div>
 <div class="card"><div class="row"><div><b>🧕 Mama Bola guide</b><div class="muted">Stuck? Take the 1-minute walkthrough.</div></div><button class="btn green" style="width:auto;margin:0;padding:14px 20px" onclick="coachStart()">Start</button></div></div>
@@ -242,13 +243,15 @@ summary{font-weight:800;cursor:pointer}
 <!-- MAMA BOLA WALKTHROUGH -->
 <div class="onboard" id="coach"><div class="obcard"><div class="em">🧕</div><h3 id="coachTitle">Mama Bola guide</h3><p class="muted" id="coachBody"></p><div class="obdots" id="coachDots"></div><div class="row"><button class="btn sec" style="width:auto;margin:8px 4px 0;padding:14px 18px" onclick="coachSkip()">Close</button><button class="btn green" style="flex:1;margin:8px 0 0" id="coachNext" onclick="coachNext()">Next</button></div></div></div>
 
-<!-- SIGN-IN GATE (shown only when the server has REQUIRE_AUTH=1) -->
-<div class="onboard" id="authGate"><div class="obcard"><div class="em">🔐</div><h3>Sign in to AJOCREDIT</h3><p class="muted" id="authStep1Lbl">Enter your phone number — we'll text you a 6-digit code.</p>
+<!-- SIGN-IN / ACCOUNT CREATION GATE (shown when the server reports require_login) -->
+<div class="onboard" id="authGate"><div class="obcard"><div class="em">🔐</div><h3>Sign in to AJOCREDIT</h3><p class="muted" id="authStep1Lbl">Enter your name and phone — we'll text you a 6-digit code. New here? We'll create your account.</p>
+  <input id="authName" placeholder="Your full name" style="width:100%;margin:10px 0 0;padding:14px;border-radius:12px;border:1px solid var(--gold);background:transparent;color:inherit;font-size:15px">
   <input id="authPhone" inputmode="tel" placeholder="Your phone e.g. 0803..." style="width:100%;margin:10px 0 0;padding:14px;border-radius:12px;border:1px solid var(--gold);background:transparent;color:inherit;font-size:15px">
   <input id="authCode" inputmode="numeric" maxlength="6" placeholder="6-digit code" style="display:none;width:100%;margin:10px 0 0;padding:14px;border-radius:12px;border:1px solid var(--gold);background:transparent;color:inherit;font-size:18px;letter-spacing:6px;text-align:center">
   <button class="btn green" style="width:100%;margin-top:12px" id="authBtn" onclick="authSend()">Send code</button>
   <p class="note" id="authMsg"></p>
   <p class="muted" id="authAlt" style="display:none"><a href="#" onclick="authSend();return false">Resend code</a></p>
+  <p class="muted" id="authSkip" style="display:none;margin-top:10px"><a href="#" onclick="authSkip();return false">Continue without signing in</a></p>
 </div></div>
 
 <div class="nav">
@@ -297,21 +300,28 @@ function toast(msg){var t=document.getElementById('toast');if(!t){t=document.cre
 // ---- Sign-in gate: active only when the server reports REQUIRE_AUTH=1 ----
 var _authPhoneNorm=null;
 function authGateOn(){return document.getElementById('authGate').classList.contains('on')}
-function maybeAuthGate(){if(window._ajoAuth===1&&!ajoToken()){document.getElementById('authGate').classList.add('on')}else{document.getElementById('authGate').classList.remove('on')}}
+function loginSkipped(){try{return localStorage.getItem('ajo_login_skipped')==='1'}catch(e){return false}}
+function authSkip(){try{localStorage.setItem('ajo_login_skipped','1')}catch(e){}document.getElementById('authGate').classList.remove('on');maybeAuthGate()}
+function authShowGate(){try{localStorage.removeItem('ajo_login_skipped')}catch(e){}document.getElementById('authGate').classList.add('on');maybeAuthGate()}
+function maybeAuthGate(){var hard=window._ajoAuth===1,login=window._ajoLogin===1,tok=ajoToken();
+  var g=document.getElementById('authGate'),skip=document.getElementById('authSkip'),card=document.getElementById('accSigninCard');
+  if(card)card.style.display=tok?'none':'block';
+  if((hard||login)&&!tok&&!loginSkipped()){g.classList.add('on');if(skip)skip.style.display=hard?'none':'block'}
+  else{g.classList.remove('on')}}
 function authSend(){var p=normPhone((document.getElementById('authPhone')||{}).value||'');var m=document.getElementById('authMsg');if(!p){m.innerHTML='<b style="color:#F87171">Add a valid Nigerian phone, e.g. 08031234567.</b>';return}_authPhoneNorm=p;m.innerHTML='<span class="muted">Sending code…</span>';document.getElementById('authBtn').disabled=true;
   api('/api/otp/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:p})}).then(function(j){document.getElementById('authBtn').disabled=false;
     if(j&&j.ok){m.innerHTML='Code sent to <b>'+p+'</b>. Enter the 6-digit code below.';document.getElementById('authCode').style.display='block';document.getElementById('authStep1Lbl').innerText='Enter the 6-digit code we just texted you.';document.getElementById('authBtn').innerText='Verify & sign in';document.getElementById('authBtn').onclick=authVerify;document.getElementById('authAlt').style.display='block';document.getElementById('authCode').focus();}
     else{m.innerHTML='<b style="color:#F87171">'+((j&&j.error)||'Could not send code — server unreachable. Try again.')+'</b>'}})}
 function authVerify(){var c=((document.getElementById('authCode')||{}).value||'').replace(/\D/g,'');var m=document.getElementById('authMsg');if(c.length!==6){m.innerHTML='<b style="color:#F87171">Enter the 6-digit code.</b>';return}m.innerHTML='<span class="muted">Verifying…</span>';document.getElementById('authBtn').disabled=true;
-  api('/api/otp/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:_authPhoneNorm,code:c,device_id:deviceId()})}).then(function(j){document.getElementById('authBtn').disabled=false;
-    if(j&&j.ok&&j.token){try{localStorage.setItem('ajo_token',j.token);localStorage.setItem('ajo_phone',_authPhoneNorm);}catch(e){}saveId({id:j.user_id,ajid:j.ajocredit_id,phone:_authPhoneNorm,name:(myId()||{}).name||'Member'});window._ajoAuth=1;maybeAuthGate();toast('Signed in ✓');location.reload();}
+  api('/api/otp/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:_authPhoneNorm,code:c,device_id:deviceId(),name:((document.getElementById('authName')||{}).value||'').trim()})}).then(function(j){document.getElementById('authBtn').disabled=false;
+    if(j&&j.ok&&j.token){try{localStorage.setItem('ajo_token',j.token);localStorage.setItem('ajo_phone',_authPhoneNorm);localStorage.removeItem('ajo_login_skipped');}catch(e){}saveId({id:j.user_id,ajid:j.ajocredit_id,phone:_authPhoneNorm,name:((document.getElementById('authName')||{}).value||'').trim()||(myId()||{}).name||'Member'});window._ajoAuth=1;maybeAuthGate();toast('Signed in ✓');location.reload();}
     else{m.innerHTML='<b style="color:#F87171">'+((j&&j.error)||'Wrong or expired code — try again.')+'</b>'}})}
 function deviceId(){var d='';try{d=localStorage.getItem('ajo_device')||''}catch(e){}if(!d){d='web-'+Math.random().toString(36).slice(2)+Date.now().toString(36);try{localStorage.setItem('ajo_device',d)}catch(e){}}return d}
-function authBoot(){api('/api/auth/config').then(function(c){window._ajoAuth=(c&&c.require_auth)?1:0;if(window._ajoAuth===1&&!ajoToken()){document.getElementById('authGate').classList.add('on')}}).catch(function(){})}
+function authBoot(){api('/api/auth/config').then(function(c){window._ajoAuth=(c&&c.require_auth)?1:0;window._ajoLogin=c?(c.require_login===false?0:1):0;maybeAuthGate()}).catch(function(){})}
 
 var API_BASES=['https://ajocredit-api.onrender.com','http://localhost:4000'];
 function ajoToken(){try{return localStorage.getItem('ajo_token')||''}catch(e){return''}}
-function api(path,opts,slowCb){var i=0;opts=opts||{};var tk=ajoToken();if(tk){opts.headers=Object.assign({},opts.headers||{},{'Authorization':'Bearer '+tk});}function attempt(){if(i>=API_BASES.length)return Promise.resolve(null);var url=API_BASES[i++];try{var ac=new AbortController();var to=setTimeout(function(){ac.abort()},45000);var slow=setTimeout(function(){if(slowCb)slowCb(url)},6000);return fetch(url+path,Object.assign({},opts,{signal:ac.signal})).then(function(r){clearTimeout(to);clearTimeout(slow);if(r.status===401){try{localStorage.removeItem('ajo_token')}catch(e){}window._ajoAuth=1;maybeAuthGate();}if(!r.ok)throw 0;return r.json()}).catch(function(){clearTimeout(slow);return attempt()})}catch(e){return attempt()}}return attempt()}
+function api(path,opts,slowCb){var i=0;opts=opts||{};var tk=ajoToken();if(tk){opts.headers=Object.assign({},opts.headers||{},{'Authorization':'Bearer '+tk});}function attempt(){if(i>=API_BASES.length)return Promise.resolve(null);var url=API_BASES[i++];try{var ac=new AbortController();var to=setTimeout(function(){ac.abort()},45000);var slow=setTimeout(function(){if(slowCb)slowCb(url)},6000);return fetch(url+path,Object.assign({},opts,{signal:ac.signal})).then(function(r){clearTimeout(to);clearTimeout(slow);if(r.status===401){try{localStorage.removeItem('ajo_token')}catch(e){}window._ajoAuth=1;window._ajoLogin=1;maybeAuthGate();}if(!r.ok)throw 0;return r.json()}).catch(function(){clearTimeout(slow);return attempt()})}catch(e){return attempt()}}return attempt()}
 function panel(id){var p=document.getElementById(id);var open=p.style.display!=='none';['mPanel','oPanel','hPanel','sPanel','rPanel','pPanel'].forEach(function(x){var el=document.getElementById(x);if(el)el.style.display='none'});p.style.display=open?'none':'block'}
 var currentGroup={id:'g-aj4821',code:'AJ-4821',name:'Aunty Bola Market Women'};
 try{var _cg=localStorage.getItem('ajo_current');if(_cg)currentGroup=JSON.parse(_cg)}catch(e){}
