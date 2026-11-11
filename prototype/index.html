@@ -81,7 +81,7 @@ summary{font-weight:800;cursor:pointer}
 .dot{display:inline-block;min-width:18px;height:18px;border-radius:99px;background:var(--err);color:#fff;font-size:11px;font-weight:800;text-align:center;line-height:18px}
 </style>
 </head>
-<body onload="if('serviceWorker' in navigator&&location.protocol!=='file:'){navigator.serviceWorker.register('sw.js')};try{authBoot()}catch(e){}">
+<body>
 <div class="phone">
 <div class="live">Turn your Ajo into bank credit — save with your people, build a real financial identity.</div>
 <div class="off" id="off">You dey offline — 2 actions go send later.</div>
@@ -297,8 +297,15 @@ try{var ap=normPhone(document.getElementById('aphone').value);if(!ap){fail('Add 
 function invite(code){var msg='Join my Ajo group on AJOCREDIT! Code: '+code+'. Turn your Ajo into bank credit.';if(navigator.share){navigator.share({title:'AJOCREDIT invite',text:msg}).catch(function(){})}else if(navigator.clipboard){navigator.clipboard.writeText(msg);toast('Invite copied — share am for WhatsApp!')}else{waChat(msg)}}
 function toast(msg){var t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';t.style.cssText='position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:#111827;color:#fff;padding:10px 18px;border-radius:99px;font-size:13px;z-index:99;border:1px solid var(--gold)';document.querySelector('.phone').appendChild(t)}t.innerText=msg;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(function(){t.style.display='none'},2500)}
 
-// ---- Sign-in gate: active only when the server reports REQUIRE_AUTH=1 ----
+// ---- Sign-in gate: shown when the server reports require_login (or the hard lock) ----
 var _authPhoneNorm=null;
+// Auth calls talk to the live API only - the localhost fallback is meaningless on a
+// real phone - and they keep the server's error body, so the sign-in screen can show
+// the REAL reason a code wasn't sent instead of a generic "unreachable".
+function apiAuth(path,opts,timeoutMs){opts=opts||{};var tk=ajoToken();if(tk){opts.headers=Object.assign({},opts.headers||{},{'Authorization':'Bearer '+tk});}
+  var ac=new AbortController();var to=setTimeout(function(){ac.abort()},timeoutMs||30000);
+  return fetch((API_BASES[0]||'')+path,Object.assign({},opts,{signal:ac.signal})).then(function(r){clearTimeout(to);
+    return r.json().catch(function(){return{}}).then(function(b){return{status:r.status,body:b,ok:r.ok}});}).catch(function(e){clearTimeout(to);return{status:0,body:null,ok:false,err:e.message}})}
 function authGateOn(){return document.getElementById('authGate').classList.contains('on')}
 function loginSkipped(){try{return localStorage.getItem('ajo_login_skipped')==='1'}catch(e){return false}}
 function authSkip(){try{localStorage.setItem('ajo_login_skipped','1')}catch(e){}document.getElementById('authGate').classList.remove('on');maybeAuthGate()}
@@ -309,15 +316,23 @@ function maybeAuthGate(){var hard=window._ajoAuth===1,login=window._ajoLogin===1
   if((hard||login)&&!tok&&!loginSkipped()){g.classList.add('on');if(skip)skip.style.display=hard?'none':'block'}
   else{g.classList.remove('on')}}
 function authSend(){var p=normPhone((document.getElementById('authPhone')||{}).value||'');var m=document.getElementById('authMsg');if(!p){m.innerHTML='<b style="color:#F87171">Add a valid Nigerian phone, e.g. 08031234567.</b>';return}_authPhoneNorm=p;m.innerHTML='<span class="muted">Sending code…</span>';document.getElementById('authBtn').disabled=true;
-  api('/api/otp/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:p})}).then(function(j){document.getElementById('authBtn').disabled=false;
-    if(j&&j.ok){m.innerHTML='Code sent to <b>'+p+'</b>. Enter the 6-digit code below.';document.getElementById('authCode').style.display='block';document.getElementById('authStep1Lbl').innerText='Enter the 6-digit code we just texted you.';document.getElementById('authBtn').innerText='Verify & sign in';document.getElementById('authBtn').onclick=authVerify;document.getElementById('authAlt').style.display='block';document.getElementById('authCode').focus();}
-    else{m.innerHTML='<b style="color:#F87171">'+((j&&j.error)||'Could not send code — server unreachable. Try again.')+'</b>'}})}
+  apiAuth('/api/otp/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:p})}).then(function(r){document.getElementById('authBtn').disabled=false;var j=r&&r.body;
+    if(r&&r.ok&&j&&j.ok){m.innerHTML='Code sent to <b>'+p+'</b>. Enter the 6-digit code below.';document.getElementById('authCode').style.display='block';document.getElementById('authStep1Lbl').innerText='Enter the 6-digit code we just texted you.';document.getElementById('authBtn').innerText='Verify & sign in';document.getElementById('authBtn').onclick=authVerify;document.getElementById('authAlt').style.display='block';document.getElementById('authCode').focus();}
+    else{m.innerHTML='<b style="color:#F87171">'+((j&&j.error)||'Could not send code — please try again shortly.')+'</b>'}})}
 function authVerify(){var c=((document.getElementById('authCode')||{}).value||'').replace(/\D/g,'');var m=document.getElementById('authMsg');if(c.length!==6){m.innerHTML='<b style="color:#F87171">Enter the 6-digit code.</b>';return}m.innerHTML='<span class="muted">Verifying…</span>';document.getElementById('authBtn').disabled=true;
-  api('/api/otp/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:_authPhoneNorm,code:c,device_id:deviceId(),name:((document.getElementById('authName')||{}).value||'').trim()})}).then(function(j){document.getElementById('authBtn').disabled=false;
-    if(j&&j.ok&&j.token){try{localStorage.setItem('ajo_token',j.token);localStorage.setItem('ajo_phone',_authPhoneNorm);localStorage.removeItem('ajo_login_skipped');}catch(e){}saveId({id:j.user_id,ajid:j.ajocredit_id,phone:_authPhoneNorm,name:((document.getElementById('authName')||{}).value||'').trim()||(myId()||{}).name||'Member'});window._ajoAuth=1;maybeAuthGate();toast('Signed in ✓');location.reload();}
+  apiAuth('/api/otp/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:_authPhoneNorm,code:c,device_id:deviceId(),name:((document.getElementById('authName')||{}).value||'').trim()})}).then(function(r){document.getElementById('authBtn').disabled=false;var j=r&&r.body;
+    if(r&&r.ok&&j&&j.ok&&j.token){try{localStorage.setItem('ajo_token',j.token);localStorage.setItem('ajo_phone',_authPhoneNorm);localStorage.removeItem('ajo_login_skipped');}catch(e){}saveId({id:j.user_id,ajid:j.ajocredit_id,phone:_authPhoneNorm,name:((document.getElementById('authName')||{}).value||'').trim()||(myId()||{}).name||'Member'});window._ajoAuth=1;maybeAuthGate();toast('Signed in ✓');location.reload();}
     else{m.innerHTML='<b style="color:#F87171">'+((j&&j.error)||'Wrong or expired code — try again.')+'</b>'}})}
 function deviceId(){var d='';try{d=localStorage.getItem('ajo_device')||''}catch(e){}if(!d){d='web-'+Math.random().toString(36).slice(2)+Date.now().toString(36);try{localStorage.setItem('ajo_device',d)}catch(e){}}return d}
-function authBoot(){api('/api/auth/config').then(function(c){window._ajoAuth=(c&&c.require_auth)?1:0;window._ajoLogin=c?(c.require_login===false?0:1):0;maybeAuthGate()}).catch(function(){})}
+// The gate must appear promptly on first launch, so read the config from the live
+// API only (the localhost fallback would report a different server's settings) and
+// give up quickly rather than leaving the user staring at an unlocked app. If the
+// config can't be read we assume the server defaults: login page ON, API still open
+// (so the "Continue without signing in" escape hatch stays available).
+function authBoot(){apiAuth('/api/auth/config',{},15000).then(function(r){var c=r&&r.body;
+  if(c){window._ajoAuth=c.require_auth?1:0;window._ajoLogin=c.require_login===false?0:1;}
+  else{window._ajoAuth=0;window._ajoLogin=1;}
+  maybeAuthGate()})}
 
 var API_BASES=['https://ajocredit-api.onrender.com','http://localhost:4000'];
 function ajoToken(){try{return localStorage.getItem('ajo_token')||''}catch(e){return''}}
@@ -553,6 +568,13 @@ function coachSkip(){document.getElementById('coach').classList.remove('on')}
 try{if(localStorage.getItem('ajo_ob'))document.getElementById('ob').classList.remove('on')}catch(e){}
 /* Live API (cloud first, localhost dev, mock fallback) — silent when offline */
 try{api('/api/score/AJ-774821').then(function(d){if(!d||!d.user)return;var t=document.querySelector('#s-credit svg text');if(t)t.textContent=d.user.score}).catch(function(){})}catch(e){}
+/* ---- Bootstrap ------------------------------------------------------------
+   Paystack's inline.js assigns window.onload, which REPLACES the <body onload>
+   handler. Anything started from an onload attribute therefore never ran: the
+   service worker was never registered and the sign-in gate never appeared. Start
+   both from here instead, at the end of our own script. */
+try{if('serviceWorker' in navigator&&location.protocol!=='file:'){navigator.serviceWorker.register('sw.js').catch(function(){})}}catch(e){}
+try{authBoot()}catch(e){}
 </script>
 </div>
 </body>
