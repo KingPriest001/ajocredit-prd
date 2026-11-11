@@ -29,7 +29,7 @@ To add (Render → Environment):
 
 | Key | Value | When |
 |---|---|---|
-| `TERMII_SENDER_ID` | `AJOCREDIT` | after Termii approves the sender ID |
+| `TERMII_SENDER_ID` | `Ajocredit` | after Termii approves the sender ID |
 | `WHATSAPP_TOKEN` | from `../.env` | if using WhatsApp OTP |
 | `WHATSAPP_PHONE_ID` | from `../.env` | if using WhatsApp OTP |
 | `WHATSAPP_OTP_TEMPLATE` | `ajocredit_otp` | default, only change if renamed |

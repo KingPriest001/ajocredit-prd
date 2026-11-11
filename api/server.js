@@ -10,6 +10,12 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+// Termii client (SMS + OTP generate/verify). Loaded after the .env loader below so
+// it picks up TERMII_API_KEY / TERMII_SENDER_ID from the environment.
+const termii = require('./termii');
+
+// Database handle, kept at module scope so the graceful shutdown below can close it.
+let __db = null;
 
 async function main() {
   console.log('BOOT mode=' + (process.env.USE_EXTERNAL_DB === '1' ? 'external' : 'embedded') + ' node=' + process.version);
@@ -36,6 +42,7 @@ async function main() {
     await db.waitReady;
     exec = (sql) => db.exec(sql);
   }
+  __db = db;
   const init = fs.readFileSync(path.join(__dirname, '..', 'db', 'init.sql'), 'utf8')
     .replace(/CREATE EXTENSION[^;]+;/, '');
   await exec(init);
@@ -157,24 +164,8 @@ async function main() {
     throw new Error('could not generate a unique invite code — try again');
   }
   // ---- Termii SMS: one sender config + one honest delivery check for EVERY SMS ----
-  // Shared by OTP and by notifications so both behave identically. Termii rejects sends
-  // when the sender ID isn't registered on the workspace, so we never report "sent"
-  // unless Termii actually accepted it (message_id present, no error text).
-  const TERMII_BASE = (process.env.TERMII_BASE_URL || 'https://v3.api.termii.com').replace(/\/$/, '');
-  const TERMII_KEY = process.env.TERMII_API_KEY;
-  const TERMII_FROM = process.env.TERMII_SENDER_ID || 'AJOCREDIT';
-  async function termiiSend(phone, text) {
-    if (!TERMII_KEY || TERMII_KEY === 'REPLACE_ME') return { delivered: false, detail: 'termii key not configured' };
-    try {
-      const r = await fetch(TERMII_BASE + '/api/sms/send', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: TERMII_KEY, to: String(phone).replace(/^\+/, ''), from: TERMII_FROM, sms: String(text), type: 'plain', channel: 'generic' }),
-      });
-      const j = await r.json().catch(() => ({}));
-      const delivered = r.ok && !!j.message_id && !/NOT_APPROVED|Validation|error/i.test(String(j.message || ''));
-      return { delivered, detail: j.message_id ? 'ok' : (j.message || j.error || `http ${r.status}`) };
-    } catch (e) { return { delivered: false, detail: e.message }; }
-  }
+  // Termii delivery lives in api/termii.js (sendSms / generateOtp / verifyOtp) so the
+  // credentials and the OTP rules stay in one place and the OTP is never logged.
   // SMS notification policy. The in-app notification is ALWAYS written; SMS is additive.
   // Only low-frequency, decision-critical kinds get SMS — a 20-member group would
   // otherwise cost 20 SMS for every contribution ping. Each member also has a daily
@@ -209,7 +200,7 @@ async function main() {
         if (u.length && u[0].phone) {
           smsQuotaUse(userId);
           const msg = `AJOCREDIT: ${String(title)} - ${String(body)}`.slice(0, 140);
-          termiiSend(u[0].phone, msg).then((r) => { if (!r.delivered) console.log(`sms-notify ${kind} failed: ${r.detail}`); });
+          termii.sendSms(u[0].phone, msg).then((r) => { if (!r.delivered) console.log(`sms-notify ${kind} failed: ${r.detail}`); });
         }
       } catch (e) {}
     }
@@ -330,99 +321,133 @@ async function main() {
     res.json({ name: u[0].name, ajocredit_id: u[0].ajocredit_id, score: u[0].score, tier: u[0].tier || tierFor(u[0].score) });
   });
 
-  // OTP via Termii (generic channel). In-memory codes (pilot scale): 6-digit, 5-min expiry, 5 fails → 15-min lock.
-  const otpStore = new Map();
-  const rl = new Map();
-  function limited(key, max, ms) {
-    const now = Date.now(), arr = (rl.get(key) || []).filter((t) => now - t < ms);
-    arr.push(now); rl.set(key, arr);
-    return arr.length > max;
+  // OTP — Termii Verify API. Rules: 6-digit code, 5-minute expiry, max 3 verification
+  // attempts per code, max 3 codes (resends) per hour per phone number. The code is
+  // never stored and never logged: we keep only a salted SHA-256 hash plus Termii's
+  // pin_id, and Termii's Verify API is the authoritative check. Codes live in the DB
+  // (not memory) so a redeploy can't strand a member mid-login.
+  const OTP_LENGTH = 6;
+  const OTP_TTL_MIN = 5;
+  const OTP_MAX_ATTEMPTS = 3;
+  const OTP_MAX_SENDS_PER_HOUR = 3;
+  const OTP_PURPOSES = ['signup', 'login', 'reset'];
+  await exec(`CREATE TABLE IF NOT EXISTS otp_codes (
+      id TEXT PRIMARY KEY,
+      phone TEXT NOT NULL,
+      purpose TEXT NOT NULL,
+      pin_id TEXT,
+      code_hash TEXT NOT NULL,
+      salt TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      attempts INT NOT NULL DEFAULT 0,
+      verified_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+    CREATE INDEX IF NOT EXISTS idx_otp_phone ON otp_codes (phone, created_at DESC);`);
+  function otpHash(salt, code) { return crypto.createHash('sha256').update(`${salt}:${code}`).digest('hex'); }
+  function otpSafeEqual(a, b) {
+    const ab = Buffer.from(String(a)), bb = Buffer.from(String(b));
+    if (ab.length !== bb.length) return false;
+    return crypto.timingSafeEqual(ab, bb);
   }
+  // Termii OTP generate/verify live in api/termii.js:
+  //   termii.generateOtp(phone, {length, ttlMinutes, attempts}) -> { otp, pinId }
+  //   termii.verifyOtp(pinId, pin)                            -> { ok }
+  // The plaintext code is used only to build the message; it is never stored or logged.
   app.post('/api/otp/send', async (req, res) => {
-    const { phone } = req.body || {};
-    if (!phone) return res.status(400).json({ error: 'phone required' });
-    if (limited(`otp:${phone}`, 5, 15 * 60 * 1000)) return res.status(429).json({ error: 'too many requests, try in 15 min' });
-    const rec = otpStore.get(phone) || { fails: 0, lockedUntil: 0 };
-    if (Date.now() < rec.lockedUntil) return res.status(429).json({ error: 'locked, try later' });
-    const code = String(Math.floor(100000 + Math.random() * 900000));
-    const smsText = `Your AJOCREDIT code is ${code}. Expires in 5 minutes.`;
-    const waToken = process.env.WHATSAPP_TOKEN, waPhoneId = process.env.WHATSAPP_PHONE_ID;
-    // Termii: send it, then check what Termii ACTUALLY said. A rejected send (e.g.
-    // no approved sender ID) must never be reported as "code sent" — that's how users
-    // get silently locked out. Shares the helper with notifications.
-    async function sendViaTermii() { return termiiSend(phone, smsText); }
-    // WhatsApp Cloud API fallback (reuses the configured token/phone id from the webhook).
-    async function sendViaWhatsApp() {
-      if (!waToken || !waPhoneId) return { delivered: false, detail: 'whatsapp not configured' };
-      try {
-        // Template name + locale are env-tunable so a re-created/approved template
-        // can be pointed at without a redeploy. Default matches the AUTHENTICATION
-        // template we register as ajocredit_otp / en_US — Meta rejects any locale
-        // mismatch (e.g. sending 'en' against an 'en_US' template).
-        const tplName = process.env.WHATSAPP_OTP_TEMPLATE || 'ajocredit_otp';
-        const tplLang = process.env.WHATSAPP_OTP_LANG || 'en_US';
-        const r = await fetch(`https://graph.facebook.com/v21.0/${waPhoneId}/messages`, {
-          method: 'POST', headers: { Authorization: `Bearer ${waToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messaging_product: 'whatsapp', to: phone.replace(/^\+/, ''), type: 'template',
-            template: { name: tplName, language: { code: tplLang }, components: [{ type: 'body', parameters: [{ type: 'text', text: code }] }] } }),
-        });
-        const j = await r.json().catch(() => ({}));
-        if (r.ok && j.messages && j.messages[0] && j.messages[0].id) return { delivered: true, detail: 'ok' };
-        // Template missing/unapproved → surface Meta's reason (never mask it as success).
-        const tplErr = (j.error && j.error.message) || '';
-        if (/template|language/i.test(tplErr)) return { delivered: false, detail: tplErr };
-        // Otherwise the recipient may have an open 24h session → plain text can deliver.
-        const r2 = await fetch(`https://graph.facebook.com/v21.0/${waPhoneId}/messages`, {
-          method: 'POST', headers: { Authorization: `Bearer ${waToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messaging_product: 'whatsapp', to: phone.replace(/^\+/, ''), type: 'text', text: { body: smsText } }),
-        });
-        const j2 = await r2.json().catch(() => ({}));
-        return { delivered: !!(r2.ok && j2.messages && j2.messages[0] && j2.messages[0].id), detail: (j2.error && j2.error.message) || tplErr || 'whatsapp send failed' };
-      } catch (e) { return { delivered: false, detail: e.message }; }
+    const { phone, purpose } = req.body || {};
+    const norm = normPhone(phone);
+    if (!norm) return res.status(400).json({ error: 'valid Nigerian phone required (e.g. 08031234567)' });
+    // Purpose: signup / login / reset. If the client doesn't say, the server decides
+    // from whether the phone is already registered. The purpose is NOT echoed back,
+    // so this cannot be used to discover who already has an account.
+    let pur = OTP_PURPOSES.includes(purpose) ? purpose : null;
+    if (!pur) {
+      const u = await q('SELECT id FROM users WHERE phone=$1', [norm]);
+      pur = u.length ? 'login' : 'signup';
     }
-    // Try Termii (primary) first; if it doesn't actually deliver, fall back to WhatsApp.
-    // Only store the code once something has REALLY gone out. If both fail, discard it
-    // and tell the truth so the login screen can't claim a code was sent.
-    let via = 'termii', res1 = await sendViaTermii();
-    if (!res1.delivered) { via = 'whatsapp'; res1 = await sendViaWhatsApp(); }
-    if (!res1.delivered) {
-      return res.status(503).json({ ok: false, error: 'Could not send code — messaging service unavailable. Please try again shortly.', detail: res1.detail });
+    // Max 3 codes per hour per phone number (the resend limit).
+    const sent = await q(`SELECT COUNT(*)::int AS n FROM otp_codes WHERE phone=$1 AND created_at > NOW() - INTERVAL '1 hour'`, [norm]);
+    if (sent.length && sent[0].n >= OTP_MAX_SENDS_PER_HOUR) {
+      return res.status(429).json({ error: 'too many codes requested - please try again in an hour' });
     }
-    otpStore.set(phone, { ...rec, code, expires: Date.now() + 5 * 60 * 1000 });
-    res.json({ ok: true, mode: via });
+    // Generate the code with Termii; we keep only a hash of it.
+    const gen = await termii.generateOtp(norm.replace(/^\+/, ''), { length: OTP_LENGTH, ttlMinutes: OTP_TTL_MIN, attempts: OTP_MAX_ATTEMPTS });
+    if (!gen.ok) {
+      // Friendly, non-technical error - the app must not crash on a Termii outage.
+      return res.status(503).json({ ok: false, error: 'Could not send code. Please try again.', detail: gen.detail });
+    }
+    const smsText = pur === 'reset'
+      ? `Your AJOCREDIT reset code is ${gen.otp}. Expires in ${OTP_TTL_MIN} minutes.`
+      : `Your AJOCREDIT code is ${gen.otp}. Expires in ${OTP_TTL_MIN} minutes.`;
+    // Deliver it over Termii. Only report "sent" when Termii actually delivered it.
+    const s1 = await termii.sendSms(norm, smsText);
+    if (!s1.delivered) {
+      // Friendly, non-technical error - the app must not crash on a Termii outage.
+      return res.status(503).json({ ok: false, error: 'Could not send code. Please try again.', detail: s1.detail });
+    }
+    // Store ONLY a salted hash of the code - never the code itself.
+    const salt = crypto.randomBytes(16).toString('hex');
+    await q(`INSERT INTO otp_codes (id, phone, purpose, pin_id, code_hash, salt, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [`otp-${Date.now()}-${crypto.randomBytes(5).toString('hex')}`, norm, pur, gen.pinId, otpHash(salt, gen.otp), salt, new Date(Date.now() + OTP_TTL_MIN * 60 * 1000)]);
+    res.json({ ok: true, mode: 'termii', expires_in: OTP_TTL_MIN * 60 });
   });
   app.post('/api/otp/verify', async (req, res) => {
-    const { phone, code, device_id, name } = req.body || {};
-    const rec = otpStore.get(phone);
-    if (!rec || !rec.code) return res.status(400).json({ error: 'no code sent' });
-    if (Date.now() > rec.expires) return res.status(401).json({ error: 'expired' });
-    if (rec.code !== String(code)) {
-      rec.fails = (rec.fails || 0) + 1;
-      if (rec.fails >= 5) rec.lockedUntil = Date.now() + 15 * 60 * 1000;
-      return res.status(401).json({ error: 'invalid', fails: rec.fails });
+    const { phone, code, device_id, name, purpose } = req.body || {};
+    const norm = normPhone(phone);
+    if (!norm) return res.status(400).json({ error: 'valid Nigerian phone required' });
+    const pin = String(code || '').replace(/\D/g, '');
+    if (pin.length !== OTP_LENGTH) return res.status(400).json({ error: `code must be ${OTP_LENGTH} digits` });
+    const rows = await q(`SELECT * FROM otp_codes WHERE phone=$1 AND verified_at IS NULL ORDER BY created_at DESC LIMIT 1`, [norm]);
+    if (!rows.length) return res.status(400).json({ error: 'no code sent' });
+    const rec = rows[0];
+    if (purpose && OTP_PURPOSES.includes(purpose) && purpose !== rec.purpose) {
+      return res.status(400).json({ error: 'that code was sent for a different request - please request a new one' });
     }
-    otpStore.delete(phone);
+    if (new Date(rec.expires_at).getTime() < Date.now()) return res.status(401).json({ error: 'expired' });
+    if (rec.attempts >= OTP_MAX_ATTEMPTS) {
+      // Mark spent rather than delete: the row still counts toward the hourly
+      // send limit, so burning attempts cannot be used to buy extra codes.
+      await q('UPDATE otp_codes SET verified_at=NOW() WHERE id=$1', [rec.id]);
+      return res.status(429).json({ error: 'too many attempts - please request a new code' });
+    }
+    // Local check against the stored hash - the code itself is never stored.
+    const local = otpSafeEqual(rec.code_hash, otpHash(rec.salt, pin));
+    // Authoritative check: the Termii Verify API.
+    const v = rec.pin_id ? await termii.verifyOtp(rec.pin_id, pin) : { ok: local, detail: 'no pin id' };
+    if (!local || !v.ok) {
+      await q('UPDATE otp_codes SET attempts=attempts+1 WHERE id=$1', [rec.id]);
+      const left = Math.max(0, OTP_MAX_ATTEMPTS - (rec.attempts + 1));
+      return res.status(401).json({ error: 'invalid', attempts_left: left });
+    }
+    await q('UPDATE otp_codes SET verified_at=NOW() WHERE id=$1', [rec.id]);
     try {
-      let u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
-      if (!u.length) {
+      let u = await q('SELECT * FROM users WHERE phone=$1', [norm]);
+      const isNew = !u.length;
+      if (isNew) {
         const uid = `u-${Date.now()}`, aj = 'AJ-' + Math.floor(100000 + Math.random() * 900000);
         // Account creation: the first successful OTP for a phone creates the member.
-        // Name is optional — fall back to a neutral placeholder.
+        // Name is optional - fall back to a neutral placeholder.
         const nm = String(name || '').trim().slice(0, 60) || 'New Member';
-        await q(`INSERT INTO users (id, phone, name, verification, ajocredit_id, score, tier, provisional) VALUES ($1,$2,$3,'OTP',$4,250,'Bronze',TRUE)`, [uid, phone, nm, aj]);
+        await q(`INSERT INTO users (id, phone, name, verification, ajocredit_id, score, tier, provisional) VALUES ($1,$2,$3,'OTP',$4,250,'Bronze',TRUE)`, [uid, norm, nm, aj]);
         u = await q('SELECT * FROM users WHERE id=$1', [uid]);
+      }
+      if (rec.purpose === 'reset') {
+        // Account recovery: the member proved control of the phone, so drop every
+        // existing session before a fresh one is issued.
+        await q('UPDATE sessions SET expires_at=NOW() WHERE user_id=$1', [u[0].id]);
       }
       if (device_id) {
         await q(`INSERT INTO devices (id, user_id, device_id, last_seen) VALUES ($1,$2,$3,NOW())
           ON CONFLICT (user_id, device_id) DO UPDATE SET last_seen=NOW()`, [`dv-${Date.now()}`, u[0].id, device_id]);
       }
-      await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'otp.verify','user',$3)`, [`al-${Date.now()}`, u[0].id, u[0].id]);
+      await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id, detail) VALUES ($1,$2,$3,'user',$4,$5)`,
+        [`al-${Date.now()}`, u[0].id, `otp.${rec.purpose}`, u[0].id, JSON.stringify({ purpose: rec.purpose, created: isNew })]);
       // Session token: random 256-bit, stored hashed, 30-day expiry, bound to device.
       const token = crypto.randomBytes(32).toString('hex');
       const thash = crypto.createHash('sha256').update(token).digest('hex');
       await q(`INSERT INTO sessions (id, user_id, token_hash, device_id, expires_at) VALUES ($1,$2,$3,$4,NOW() + INTERVAL '30 days')`,
         [`se-${Date.now()}`, u[0].id, thash, device_id || '']);
-      res.json({ ok: true, ajocredit_id: u[0].ajocredit_id, user_id: u[0].id, token });
+      res.json({ ok: true, ajocredit_id: u[0].ajocredit_id, user_id: u[0].id, token, purpose: rec.purpose, created: isNew });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
   // Request log: every money/score write also lands in audit_log at its handler.
@@ -972,3 +997,17 @@ async function main() {
 
 main().catch((e) => { console.error('API-FAIL:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => console.error('UNHANDLED:', e && e.message ? e.message : e));
+
+// Graceful shutdown. Render (and any process manager) sends SIGTERM on every
+// deploy and restart: closing the database cleanly stops the embedded PGlite
+// data directory being left in a broken state, which it otherwise is whenever
+// the process is killed mid-write.
+let __closing = false;
+async function shutdown() {
+  if (__closing) return;
+  __closing = true;
+  try { if (__db && typeof __db.close === 'function') await __db.close(); } catch (e) {}
+  process.exit(0);
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

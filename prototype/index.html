@@ -251,6 +251,7 @@ summary{font-weight:800;cursor:pointer}
   <button class="btn green" style="width:100%;margin-top:12px" id="authBtn" onclick="authSend()">Send code</button>
   <p class="note" id="authMsg"></p>
   <p class="muted" id="authAlt" style="display:none"><a href="#" onclick="authSend();return false">Resend code</a></p>
+  <p class="muted" id="authReset" style="margin-top:6px"><a href="#" onclick="authSend('reset');return false">Lost access? Reset my sign-in</a></p>
   <p class="muted" id="authSkip" style="display:none;margin-top:10px"><a href="#" onclick="authSkip();return false">Continue without signing in</a></p>
 </div></div>
 
@@ -299,6 +300,7 @@ function toast(msg){var t=document.getElementById('toast');if(!t){t=document.cre
 
 // ---- Sign-in gate: shown when the server reports require_login (or the hard lock) ----
 var _authPhoneNorm=null;
+var _authPurpose='';   // '' = server decides (signup for a new phone, login otherwise); 'reset' = account recovery
 // Auth calls talk to the live API only - the localhost fallback is meaningless on a
 // real phone - and they keep the server's error body, so the sign-in screen can show
 // the REAL reason a code wasn't sent instead of a generic "unreachable".
@@ -315,14 +317,14 @@ function maybeAuthGate(){var hard=window._ajoAuth===1,login=window._ajoLogin===1
   if(card)card.style.display=tok?'none':'block';
   if((hard||login)&&!tok&&!loginSkipped()){g.classList.add('on');if(skip)skip.style.display=hard?'none':'block'}
   else{g.classList.remove('on')}}
-function authSend(){var p=normPhone((document.getElementById('authPhone')||{}).value||'');var m=document.getElementById('authMsg');if(!p){m.innerHTML='<b style="color:#F87171">Add a valid Nigerian phone, e.g. 08031234567.</b>';return}_authPhoneNorm=p;m.innerHTML='<span class="muted">Sending code…</span>';document.getElementById('authBtn').disabled=true;
-  apiAuth('/api/otp/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:p})}).then(function(r){document.getElementById('authBtn').disabled=false;var j=r&&r.body;
+function authSend(purpose){if(purpose)_authPurpose=purpose;var p=normPhone((document.getElementById('authPhone')||{}).value||'');var m=document.getElementById('authMsg');if(!p){m.innerHTML='<b style="color:#F87171">Add a valid Nigerian phone, e.g. 08031234567.</b>';return}_authPhoneNorm=p;m.innerHTML='<span class="muted">Sending code…</span>';document.getElementById('authBtn').disabled=true;
+  apiAuth('/api/otp/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:p,purpose:_authPurpose})}).then(function(r){document.getElementById('authBtn').disabled=false;var j=r&&r.body;
     if(r&&r.ok&&j&&j.ok){m.innerHTML='Code sent to <b>'+p+'</b>. Enter the 6-digit code below.';document.getElementById('authCode').style.display='block';document.getElementById('authStep1Lbl').innerText='Enter the 6-digit code we just texted you.';document.getElementById('authBtn').innerText='Verify & sign in';document.getElementById('authBtn').onclick=authVerify;document.getElementById('authAlt').style.display='block';document.getElementById('authCode').focus();}
     else{m.innerHTML='<b style="color:#F87171">'+((j&&j.error)||'Could not send code — please try again shortly.')+'</b>'}})}
 function authVerify(){var c=((document.getElementById('authCode')||{}).value||'').replace(/\D/g,'');var m=document.getElementById('authMsg');if(c.length!==6){m.innerHTML='<b style="color:#F87171">Enter the 6-digit code.</b>';return}m.innerHTML='<span class="muted">Verifying…</span>';document.getElementById('authBtn').disabled=true;
-  apiAuth('/api/otp/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:_authPhoneNorm,code:c,device_id:deviceId(),name:((document.getElementById('authName')||{}).value||'').trim()})}).then(function(r){document.getElementById('authBtn').disabled=false;var j=r&&r.body;
+  apiAuth('/api/otp/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:_authPhoneNorm,code:c,device_id:deviceId(),name:((document.getElementById('authName')||{}).value||'').trim(),purpose:_authPurpose})}).then(function(r){document.getElementById('authBtn').disabled=false;var j=r&&r.body;
     if(r&&r.ok&&j&&j.ok&&j.token){try{localStorage.setItem('ajo_token',j.token);localStorage.setItem('ajo_phone',_authPhoneNorm);localStorage.removeItem('ajo_login_skipped');}catch(e){}saveId({id:j.user_id,ajid:j.ajocredit_id,phone:_authPhoneNorm,name:((document.getElementById('authName')||{}).value||'').trim()||(myId()||{}).name||'Member'});window._ajoAuth=1;maybeAuthGate();toast('Signed in ✓');location.reload();}
-    else{m.innerHTML='<b style="color:#F87171">'+((j&&j.error)||'Wrong or expired code — try again.')+'</b>'}})}
+    else{m.innerHTML='<b style="color:#F87171">'+((j&&j.error)||'Wrong or expired code — try again.')+(j&&j.attempts_left!==undefined?(' &middot; '+j.attempts_left+' attempt'+(j.attempts_left===1?'':'s')+' left'):'')+'</b>'}})}
 function deviceId(){var d='';try{d=localStorage.getItem('ajo_device')||''}catch(e){}if(!d){d='web-'+Math.random().toString(36).slice(2)+Date.now().toString(36);try{localStorage.setItem('ajo_device',d)}catch(e){}}return d}
 // The gate must appear promptly on first launch, so read the config from the live
 // API only (the localhost fallback would report a different server's settings) and
