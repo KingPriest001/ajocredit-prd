@@ -14,10 +14,24 @@ The legal/compliance gate lives separately in `LAUNCH-CHECKLIST.md` and is uncha
 |---|---|
 | Flutterwave | **LIVE** — hosted checkout link issues correctly |
 | Paystack | **TEST key** (`pk_test_…`) — fallback stays blocked until `pk_live_` |
-| Termii API key | set, **but 0 sender IDs registered** → sends are rejected |
+| Termii API key | live key valid (Zenonmag Concepts Ventures, ₦28 balance), **but 0 sender IDs registered** → SMS is rejected |
+| Termii OTP/Verify product | **inactive for Nigeria** on the new workspace ("Country Inactive") → `TERMII_OTP_MODE=local` covers it |
+| Email (Resend) | **not configured** — welcome + reset emails are recorded in `email_log` but not delivered |
 | WhatsApp | token valid locally, **not set on Render**, no `ajocredit_otp` template |
 | `REQUIRE_AUTH` | **off** — API is open (pilot) |
 | `REQUIRE_LOGIN` | **on** — sign-in/account-creation page is live |
+
+## Notifications (MVP)
+
+| Channel | What goes out |
+|---|---|
+| SMS (Termii) | OTP code · welcome message after a verified sign-up · password-reset code |
+| In-app | contribution recorded · payout due · member joined (plus join requests, approvals, payouts completed) |
+| Email (Resend) | welcome after sign-up · password-reset notice |
+
+**No bulk SMS to groups, no push notifications, no WhatsApp.** The reset code always
+goes by SMS to the phone — it is never emailed. Every transactional email is written
+to `email_log` with a `sent` / `not_configured` / `failed` status.
 
 ## Environment variables on Render
 
@@ -29,7 +43,12 @@ To add (Render → Environment):
 
 | Key | Value | When |
 |---|---|---|
+| `TERMII_API_KEY` | live key | **required** — currently Render still holds the old key/workspace |
 | `TERMII_SENDER_ID` | `Ajocredit` | after Termii approves the sender ID |
+| `TERMII_BASE_URL` | `https://v4.api.termii.com` | default |
+| `TERMII_OTP_MODE` | `termii` (default) or `local` | use `local` if Termii's OTP/Verify product stays inactive |
+| `RESEND_API_KEY` | Resend key | needed for the welcome + password-reset emails |
+| `RESEND_FROM` | `AJOCREDIT <no-reply@ajocredit.app>` | needed for the welcome + password-reset emails |
 | `WHATSAPP_TOKEN` | from `../.env` | if using WhatsApp OTP |
 | `WHATSAPP_PHONE_ID` | from `../.env` | if using WhatsApp OTP |
 | `WHATSAPP_OTP_TEMPLATE` | `ajocredit_otp` | default, only change if renamed |

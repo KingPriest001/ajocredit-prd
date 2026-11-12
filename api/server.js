@@ -13,6 +13,9 @@ const path = require('path');
 // Termii client (SMS + OTP generate/verify). Loaded after the .env loader below so
 // it picks up TERMII_API_KEY / TERMII_SENDER_ID from the environment.
 const termii = require('./termii');
+// Transactional email (welcome + password reset only). Records what it tried to
+// send in email_log even when no email provider is configured yet.
+const mailer = require('./mailer');
 
 // Database handle, kept at module scope so the graceful shutdown below can close it.
 let __db = null;
@@ -163,28 +166,29 @@ async function main() {
     }
     throw new Error('could not generate a unique invite code — try again');
   }
-  // ---- Termii SMS: one sender config + one honest delivery check for EVERY SMS ----
-  // Termii delivery lives in api/termii.js (sendSms / generateOtp / verifyOtp) so the
-  // credentials and the OTP rules stay in one place and the OTP is never logged.
-  // SMS notification policy. The in-app notification is ALWAYS written; SMS is additive.
-  // Only low-frequency, decision-critical kinds get SMS — a 20-member group would
-  // otherwise cost 20 SMS for every contribution ping. Each member also has a daily
-  // cap so one busy group can't drain the SMS budget.
-  const SMS_KINDS = new Set((process.env.SMS_NOTIFY_KINDS || 'join_request,joined,join_rejected,payout_pending,exit')
-    .split(',').map((s) => s.trim()).filter(Boolean));
-  const SMS_MAX_PER_DAY = Math.max(0, parseInt(process.env.SMS_MAX_PER_DAY || '5', 10) || 0);
-  const smsBudget = new Map(); // userId -> { day, count }
-  function smsQuotaLeft(userId) {
-    if (SMS_MAX_PER_DAY <= 0) return false;
-    const day = new Date().toISOString().slice(0, 10);
-    const rec = smsBudget.get(userId);
-    if (!rec || rec.day !== day) { smsBudget.set(userId, { day, count: 0 }); return true; }
-    return rec.count < SMS_MAX_PER_DAY;
-  }
-  function smsQuotaUse(userId) {
-    const day = new Date().toISOString().slice(0, 10);
-    const rec = smsBudget.get(userId) || { day, count: 0 };
-    rec.count += 1; smsBudget.set(userId, rec);
+  // Task 2: member email address, and a log of every transactional email we try to send.
+  await exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
+    CREATE TABLE IF NOT EXISTS email_log (
+      id TEXT PRIMARY KEY,
+      to_email TEXT,
+      kind TEXT NOT NULL,
+      subject TEXT,
+      body TEXT,
+      status TEXT NOT NULL DEFAULT 'queued',
+      detail TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());`);
+
+  // ---- Notifications (MVP) --------------------------------------------------
+  // In-app notifications are the channel for group activity: a contribution is
+  // recorded, a payout is due, a member joins. SMS is reserved for the OTP, the
+  // welcome message and a password reset - we do not send bulk SMS to groups.
+  // Every transactional email is written to email_log as well as being sent, so we
+  // can always see what went out and whether it landed.
+  async function recordEmail(row) {
+    try {
+      await q(`INSERT INTO email_log (id, to_email, kind, subject, body, status, detail) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [`el-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, row.to || '', row.kind || 'general', String(row.subject || '').slice(0, 120), String(row.body || '').slice(0, 2000), row.status || 'queued', String(row.detail || '').slice(0, 300)]);
+    } catch (e) {}
   }
   // Group activity notifications: every ACTIVE member sees contributions/payouts/etc.
   async function notifyUser(userId, kind, title, body) {
@@ -192,18 +196,6 @@ async function main() {
       await q(`INSERT INTO notifications (id, user_id, kind, title, body) VALUES ($1,$2,$3,$4,$5)`,
         [`nt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, userId, kind, String(title).slice(0, 80), String(body).slice(0, 200)]);
     } catch (e) {}
-    // SMS copy — fire and forget so a slow/failed provider never delays the caller's
-    // response, and a provider failure never breaks the in-app notification.
-    if (process.env.SMS_NOTIFY !== '0' && SMS_KINDS.has(kind) && smsQuotaLeft(userId)) {
-      try {
-        const u = await q('SELECT phone FROM users WHERE id=$1', [userId]);
-        if (u.length && u[0].phone) {
-          smsQuotaUse(userId);
-          const msg = `AJOCREDIT: ${String(title)} - ${String(body)}`.slice(0, 140);
-          termii.sendSms(u[0].phone, msg).then((r) => { if (!r.delivered) console.log(`sms-notify ${kind} failed: ${r.detail}`); });
-        }
-      } catch (e) {}
-    }
   }
   async function notifyGroup(groupId, kind, title, body) {
     try {
@@ -389,10 +381,20 @@ async function main() {
     const salt = crypto.randomBytes(16).toString('hex');
     await q(`INSERT INTO otp_codes (id, phone, purpose, pin_id, code_hash, salt, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       [`otp-${Date.now()}-${crypto.randomBytes(5).toString('hex')}`, norm, pur, gen.pinId, otpHash(salt, gen.otp), salt, new Date(Date.now() + OTP_TTL_MIN * 60 * 1000)]);
+    // A password-reset request also emails the member a notice. The reset code
+    // itself always goes by SMS to the phone - it is never emailed.
+    if (pur === 'reset') {
+      try {
+        const u = await q('SELECT name, phone, email FROM users WHERE phone=$1', [norm]);
+        if (u.length) {
+          await mailer.passwordResetEmail({ name: u[0].name, email: u[0].email, phone: u[0].phone, record: recordEmail });
+        }
+      } catch (e) {}
+    }
     res.json({ ok: true, mode: 'termii', expires_in: OTP_TTL_MIN * 60 });
   });
   app.post('/api/otp/verify', async (req, res) => {
-    const { phone, code, device_id, name, purpose } = req.body || {};
+    const { phone, code, device_id, name, purpose, email } = req.body || {};
     const norm = normPhone(phone);
     if (!norm) return res.status(400).json({ error: 'valid Nigerian phone required' });
     const pin = String(code || '').replace(/\D/g, '');
@@ -425,13 +427,18 @@ async function main() {
     try {
       let u = await q('SELECT * FROM users WHERE phone=$1', [norm]);
       const isNew = !u.length;
+      const mail = String(email || '').trim().slice(0, 160);
       if (isNew) {
         const uid = `u-${Date.now()}`, aj = 'AJ-' + Math.floor(100000 + Math.random() * 900000);
         // Account creation: the first successful OTP for a phone creates the member.
         // Name is optional - fall back to a neutral placeholder.
         const nm = String(name || '').trim().slice(0, 60) || 'New Member';
-        await q(`INSERT INTO users (id, phone, name, verification, ajocredit_id, score, tier, provisional) VALUES ($1,$2,$3,'OTP',$4,250,'Bronze',TRUE)`, [uid, norm, nm, aj]);
+        await q(`INSERT INTO users (id, phone, name, email, verification, ajocredit_id, score, tier, provisional) VALUES ($1,$2,$3,$4,'OTP',$5,250,'Bronze',TRUE)`, [uid, norm, nm, mail || null, aj]);
         u = await q('SELECT * FROM users WHERE id=$1', [uid]);
+      } else if (mail && !u[0].email) {
+        // An existing member adding their email address for the first time.
+        await q('UPDATE users SET email=$1 WHERE id=$2', [mail, u[0].id]);
+        u = await q('SELECT * FROM users WHERE id=$1', [u[0].id]);
       }
       if (rec.purpose === 'reset') {
         // Account recovery: the member proved control of the phone, so drop every
@@ -449,6 +456,12 @@ async function main() {
       const thash = crypto.createHash('sha256').update(token).digest('hex');
       await q(`INSERT INTO sessions (id, user_id, token_hash, device_id, expires_at) VALUES ($1,$2,$3,$4,NOW() + INTERVAL '30 days')`,
         [`se-${Date.now()}`, u[0].id, thash, device_id || '']);
+      // Welcome the new member - SMS and email, once, at sign-up only.
+      if (isNew) {
+        const wtxt = `Welcome to AJOCREDIT! Your ID is ${u[0].ajocredit_id}. Your score starts at 250 (Bronze). Open the app to create or join a group.`;
+        termii.sendSms(norm, wtxt).then((r) => { if (!r.delivered) console.log('welcome sms failed: ' + r.detail); });
+        await mailer.welcomeEmail({ name: u[0].name, email: u[0].email, ajocreditId: u[0].ajocredit_id, record: recordEmail });
+      }
       res.json({ ok: true, ajocredit_id: u[0].ajocredit_id, user_id: u[0].id, token, purpose: rec.purpose, created: isNew });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
