@@ -182,6 +182,9 @@ async function main() {
   await exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN NOT NULL DEFAULT TRUE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;`);
+  // Email is optional. Older rows stored an empty string; normalise them to NULL so
+  // "no email" always reads as NULL.
+  await exec(`UPDATE users SET email=NULL WHERE email=''`);
 
   // ---- Notifications (MVP) --------------------------------------------------
   // In-app notifications are the channel for group activity: a contribution is
@@ -379,7 +382,7 @@ async function main() {
     return token;
   }
   async function publicUser(u) {
-    return { id: u.id, name: u.name, phone: u.phone, email: u.email || '',
+    return { id: u.id, name: u.name, phone: u.phone, email: u.email || null,
       ajocredit_id: u.ajocredit_id, score: u.score, tier: u.tier || tierFor(u.score),
       verified: u.phone_verified !== false };
   }
@@ -429,12 +432,14 @@ async function main() {
     if (!sent.ok) {
       return otpSendError(res, sent);
     }
-    // A password-reset request also emails the member a notice. The reset code
-    // itself always goes by SMS to the phone - it is never emailed.
+    // A password-reset request also emails the member a notice - but only if they
+    // gave us an address. The reset code itself always goes by SMS to the phone.
     if (pur === 'reset') {
       try {
         const u = await q('SELECT name, phone, email FROM users WHERE phone=$1', [norm]);
-        if (u.length) await mailer.passwordResetEmail({ name: u[0].name, email: u[0].email, phone: u[0].phone, record: recordEmail });
+        if (u.length && u[0].email) {
+          await mailer.passwordResetEmail({ name: u[0].name, email: u[0].email, phone: u[0].phone, record: recordEmail });
+        }
       } catch (e) {}
     }
     res.json({ ok: true, mode: 'termii', expires_in: OTP_TTL_MIN * 60 });
@@ -501,11 +506,11 @@ async function main() {
       await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id, detail) VALUES ($1,$2,$3,'user',$4,$5)`,
         [`al-${Date.now()}`, u[0].id, `otp.${rec.purpose}`, u[0].id, JSON.stringify({ purpose: rec.purpose, created: isNew })]);
       const token = await issueSession(u[0].id, device_id);
-      // Welcome the new member - SMS and email, once, at sign-up only.
+      // Welcome the new member by SMS - that is the channel everyone has. The email
+      // welcome is dropped on purpose: many members have no email address.
       if (isNew) {
         const wtxt = `Welcome to AJOCREDIT! Your ID is ${u[0].ajocredit_id}. Your score starts at 250 (Bronze). Open the app to create or join a group.`;
         termii.sendSms(norm, wtxt).then((r) => { if (!r.delivered) console.log('welcome sms failed: ' + r.detail); });
-        await mailer.welcomeEmail({ name: u[0].name, email: u[0].email, ajocreditId: u[0].ajocredit_id, record: recordEmail });
       }
       res.json({ ok: true, ajocredit_id: u[0].ajocredit_id, user_id: u[0].id, token, purpose: rec.purpose, created: isNew, user: await publicUser(u[0]) });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
@@ -520,8 +525,10 @@ async function main() {
     if (!norm) return res.status(400).json({ error: 'Enter a valid Nigerian phone number (e.g. 08031234567)' });
     const nm = String(name || '').trim().slice(0, 60);
     if (nm.length < 2) return res.status(400).json({ error: 'Enter your full name' });
+    // Email is OPTIONAL - many members do not have one. If it is given it must be
+    // valid; if it is left empty it is stored as NULL (never as an empty string).
     const em = String(email || '').trim().slice(0, 160);
-    if (!emailOk(em)) return res.status(400).json({ error: 'Enter a valid email address' });
+    if (em && !emailOk(em)) return res.status(400).json({ error: 'That email address does not look right - leave it empty if you do not have one' });
     if (!passwordOk(password)) return res.status(400).json({ error: 'Password must be at least 8 characters, with a letter and a number' });
     if (terms !== true && terms !== 'true' && terms !== 'on' && terms !== 1) return res.status(400).json({ error: 'Please accept the Terms to continue' });
     // Phone numbers are unique.
@@ -601,7 +608,11 @@ async function main() {
     if (!sent.ok) {
       return otpSendError(res, sent);
     }
-    try { await mailer.passwordResetEmail({ name: u[0].name, email: u[0].email, phone: norm, record: recordEmail }); } catch (e) {}
+    // The phone is the main path: the OTP goes by SMS to the number. The email notice
+    // is only a bonus, and only for members who gave us an address.
+    if (u[0].email) {
+      try { await mailer.passwordResetEmail({ name: u[0].name, email: u[0].email, phone: norm, record: recordEmail }); } catch (e) {}
+    }
     res.json({ ok: true, message: 'If that number is registered, a code is on its way.' });
   });
 

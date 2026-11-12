@@ -36,12 +36,16 @@ a{color:var(--gold)}
   <label for="suName">Full name</label>
   <input id="suName" placeholder="e.g. Amaka Obi" autocomplete="name">
 
-  <label for="suPhone">Phone number</label>
+  <label for="suPhone">Phone number (required — this is your login)</label>
   <input id="suPhone" inputmode="tel" placeholder="08031234567" autocomplete="tel">
   <p class="note">We will send an OTP code via SMS to verify your phone number.</p>
 
-  <label for="suEmail">Email address</label>
-  <input id="suEmail" type="email" placeholder="you@example.com" autocomplete="email">
+  <label for="suEmail">Email (optional - if you have one)</label>
+  <div style="display:flex;gap:8px;align-items:center">
+    <input id="suEmail" type="email" placeholder="you@example.com" autocomplete="email" style="flex:1;margin:6px 0">
+    <button class="btn sec" type="button" onclick="skipEmail()" style="width:auto;flex:0 0 auto;margin:6px 0;padding:14px 20px">Skip</button>
+  </div>
+  <p class="note">No email? Tap Skip — you can still sign in with your phone number.</p>
 
   <label for="suPass">Password</label>
   <input id="suPass" type="password" placeholder="At least 8 characters" autocomplete="new-password">
@@ -67,6 +71,8 @@ var API_BASES=['https://ajocredit-api.onrender.com','http://localhost:4000'];
 function api(path,opts){opts=opts||{};var i=0;function attempt(){if(i>=API_BASES.length)return Promise.resolve(null);var url=API_BASES[i++];try{var ac=new AbortController();var to=setTimeout(function(){ac.abort()},30000);return fetch(url+path,Object.assign({},opts,{signal:ac.signal})).then(function(r){clearTimeout(to);return r.text().then(function(t){try{var b=JSON.parse(t);b.__status=r.status;return b}catch(e){return{__status:r.status,error:'Unexpected reply from the server.'}}})}).catch(function(){clearTimeout(to);return attempt()})}catch(e){return attempt()}}return attempt()}
 function normPhone(p){p=String(p||'').replace(/[\s\-()]/g,'');if(/^0[789][01]\d{8}$/.test(p))return '+234'+p.slice(1);if(/^234[789][01]\d{8}$/.test(p))return '+'+p;if(/^\+234[789][01]\d{8}$/.test(p))return p;return null}
 function deviceId(){var d='';try{d=localStorage.getItem('ajo_device')||''}catch(e){}if(!d){d='web-'+Math.random().toString(36).slice(2)+Date.now().toString(36);try{localStorage.setItem('ajo_device',d)}catch(e){}}return d}
+// Email is optional - Skip clears it and continues the sign-up.
+function skipEmail(){document.getElementById('suEmail').value='';signup()}
 function signup(){
   var e=document.getElementById('suErr');e.textContent='';
   var name=document.getElementById('suName').value.trim();
@@ -76,7 +82,7 @@ function signup(){
   var terms=document.getElementById('suTerms').checked;
   if(!normPhone(phone)){e.textContent='Enter a valid Nigerian phone number (e.g. 08031234567).';return}
   if(name.length<2){e.textContent='Enter your full name.';return}
-  if(!mail){e.textContent='Enter your email address.';return}
+  if(mail && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(mail)){e.textContent='That email address does not look right — leave it empty if you do not have one.';return}
   if(p1.length<8||!/\d/.test(p1)||!/[A-Za-z]/.test(p1)){e.textContent='Password must be at least 8 characters, with a letter and a number.';return}
   if(p1!==p2){e.textContent='The two passwords do not match.';return}
   if(!terms){e.textContent='Please accept the Terms to continue.';return}
