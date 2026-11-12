@@ -42,6 +42,9 @@ function pickTarget(manifest, env) {
   if (rollbackOn(env)) {
     const rb = manifest.rollback || {};
     if (rb.version && rb.url) return { version: rb.version, url: rb.url, checksum: rb.sha256 || '' };
+    // Nothing to roll back to. Returning null here leaves every device where it
+    // is - serving the new bundle instead would be a rollback that does nothing.
+    return null;
   }
   return { version: manifest.version, url: manifest.url, checksum: manifest.sha256 || '' };
 }
@@ -49,19 +52,29 @@ function pickTarget(manifest, env) {
 // The decision, as a pure function so it can be tested without a server.
 // Returns null when there is nothing to say (no manifest published yet).
 function decide(manifest, env, deviceId, currentVersion) {
+  const current = String(currentVersion || '').trim();
+  if (rollbackOn(env)) {
+    const target = pickTarget(manifest, env);
+    // No rollback bundle published yet - nobody moves.
+    if (!target) return { upToDate: true, version: current || '', url: '', checksum: '' };
+    // The device already runs the good bundle.
+    if (current && current === target.version) {
+      return { upToDate: true, version: current, url: target.url, checksum: target.checksum };
+    }
+    // A rollback is for everybody, not a staged slice.
+    return { upToDate: false, version: target.version, url: target.url, checksum: target.checksum };
+  }
   const target = pickTarget(manifest, env);
   if (!target) return null;
-  const current = String(currentVersion || '').trim();
   // The device already runs the bundle we are pointing at.
   if (current && current === target.version) {
     return { upToDate: true, version: current, url: target.url, checksum: target.checksum };
   }
-  // A rollback is for everybody, not a staged slice.
-  if (!rollbackOn(env)) {
-    const rollout = rolloutPct(env);
-    if (rollout < 100 && deviceBucket(deviceId) >= rollout) {
-      return { upToDate: true, version: current || target.version, url: target.url, checksum: target.checksum };
-    }
+  // Staged rollout: a stable bucket per device, so a phone does not flip between
+  // "has update" and "no update" on every launch.
+  const rollout = rolloutPct(env);
+  if (rollout < 100 && deviceBucket(deviceId) >= rollout) {
+    return { upToDate: true, version: current || target.version, url: target.url, checksum: target.checksum };
   }
   return { upToDate: false, version: target.version, url: target.url, checksum: target.checksum };
 }

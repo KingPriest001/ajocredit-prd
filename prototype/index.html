@@ -600,14 +600,16 @@ function ajoFetchBundled(cb){
   }catch(e){cb('')}
 }
 function ajoOwnVersion(cb){
-  // Prefer the native build info - exact for an installed app.
+  // The version of the web content this device is actually running. On an
+  // installed app the live-update bundle replaces version.js, so this is the
+  // version the member has - not the (older) native shell they installed.
+  var native='';
   try{
     if(window.Capacitor&&typeof window.Capacitor.getInfo==='function'){
-      window.Capacitor.getInfo().then(function(i){cb(String((i&&i.version)||''))}).catch(function(){ajoFetchBundled(cb)});
-      return;
+      window.Capacitor.getInfo().then(function(i){native=String((i&&i.version)||'')}).catch(function(){});
     }
   }catch(e){}
-  ajoFetchBundled(cb);
+  ajoFetchBundled(function(v){ cb(v||native); });
 }
 function checkAppUpdate(){
   var b=document.getElementById('upd');if(!b)return;
