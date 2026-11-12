@@ -1,0 +1,1 @@
+window.AJO_BUILD={"version": "169b981", "code": "1794471490", "built": "2026-11-12T08:18:43.077681Z", "release": "https://github.com/KingPriest001/ajocredit-prd/releases/latest", "download": "https://github.com/KingPriest001/ajocredit-prd/releases/latest/download/ajocredit-latest-release.apk", "debugDownload": "https://kingpriest001.github.io/ajocredit-prd/ajocredit.apk"};
