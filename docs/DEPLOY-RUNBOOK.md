@@ -29,8 +29,9 @@ new APK. CI publishes the bundle and a manifest to the static site:
 - `https://kingpriest001.github.io/ajocredit-prd/bundle.json` → `{ version, url, sha256, rollback }`
 - `https://kingpriest001.github.io/ajocredit-prd/bundles/<version>.zip`
 
-The updater plugin (`@capgo/capacitor-updater`, pinned to **6.53.0** — the last
-release that supports Capacitor 6) asks the API who should get the new bundle:
+The updater plugin (`@capgo/capacitor-updater`, pinned to **6.7.8** — the newest
+release that supports Capacitor 6 *and* builds with the Android toolchain
+Capacitor 6 ships with) asks the API who should get the new bundle:
 
 `POST /api/app/update` with `{ device_id, version_name, platform, app_id, … }`
 

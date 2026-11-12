@@ -27,10 +27,13 @@ jobs:
           java-version: 17
       # No setup-android: ubuntu-latest runners ship the Android SDK preinstalled (ANDROID_HOME).
       - run: npm init -y
-      # @capgo/capacitor-updater 6.53.0 is the last release that supports
-      # Capacitor 6 (peer "@capacitor/core": "^6.0.0"). Newer versions need
-      # Capacitor 8 and npm refuses to install them here.
-      - run: npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/assets @capgo/capacitor-updater@6.53.0
+      # @capgo/capacitor-updater 6.7.8 is the newest release that supports
+      # Capacitor 6 (peer "@capacitor/core": "^6.0.0") AND builds with the
+      # Android toolchain Capacitor 6 ships with (AGP 8.2.1, compileSdk 34).
+      # Newer 6.x releases pull in androidx.work 2.10+ / play-services-tasks
+      # 18.4.1, which demand compileSdk 35 and AGP 8.6+, and 8.x needs
+      # Capacitor 8 altogether.
+      - run: npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/assets @capgo/capacitor-updater@6.7.8
       - run: npx cap init "AJOCREDIT" com.ajocredit.app --web-dir=prototype
       - run: npx cap add android
       - run: mkdir -p resources && cp prototype/icon-1024.png resources/icon.png && cp prototype/icon-1024.png resources/splash.png
@@ -187,10 +190,13 @@ jobs:
           distribution: temurin
           java-version: 17
       - run: npm init -y
-      # @capgo/capacitor-updater 6.53.0 is the last release that supports
-      # Capacitor 6 (peer "@capacitor/core": "^6.0.0"). Newer versions need
-      # Capacitor 8 and npm refuses to install them here.
-      - run: npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/assets @capgo/capacitor-updater@6.53.0
+      # @capgo/capacitor-updater 6.7.8 is the newest release that supports
+      # Capacitor 6 (peer "@capacitor/core": "^6.0.0") AND builds with the
+      # Android toolchain Capacitor 6 ships with (AGP 8.2.1, compileSdk 34).
+      # Newer 6.x releases pull in androidx.work 2.10+ / play-services-tasks
+      # 18.4.1, which demand compileSdk 35 and AGP 8.6+, and 8.x needs
+      # Capacitor 8 altogether.
+      - run: npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/assets @capgo/capacitor-updater@6.7.8
       - run: npx cap init "AJOCREDIT" com.ajocredit.app --web-dir=prototype
       - run: npx cap add android
       - run: mkdir -p resources && cp prototype/icon-1024.png resources/icon.png && cp prototype/icon-1024.png resources/splash.png
