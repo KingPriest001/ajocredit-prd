@@ -5,6 +5,13 @@ on:
     paths:
       - "prototype/**"
       - ".github/workflows/pages.yml"
+  # The apk workflow rebuilds the APK and commits it as "[skip ci] Refresh published
+  # APK" - and GitHub skips ALL workflow runs for a [skip ci] commit, so the Pages
+  # deploy never saw the new APK and the published download lagged one build behind.
+  # Deploy again once the apk workflow finishes.
+  workflow_run:
+    workflows: ["apk"]
+    types: [completed]
   workflow_dispatch:
 permissions:
   contents: read
@@ -15,12 +22,18 @@ concurrency:
   cancel-in-progress: true
 jobs:
   deploy:
+    # Only re-deploy after a successful apk run.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # On a workflow_run trigger take the latest main, so the APK the apk workflow
+          # just published is included. On a normal push use that push's own commit.
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.sha }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
