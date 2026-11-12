@@ -44,10 +44,13 @@ jobs:
           APP_VERSION: ${{ inputs.version }}
         run: |
           python3 - <<'PY'
-          import os, re, pathlib, subprocess
+          import os, re, pathlib, subprocess, time
           p = pathlib.Path('android/app/build.gradle')
           s = p.read_text()
-          count = int(subprocess.check_output(['git', 'rev-list', '--count', 'HEAD']).decode().strip())
+          # Epoch seconds: always increases, and does not depend on git history
+          # (actions/checkout is a shallow clone, so a commit count would always
+          # read 1). Fits Android's 2,100,000,000 versionCode ceiling until 2036.
+          count = int(time.time())
           sha = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode().strip()
           version = os.environ.get('APP_VERSION', '').strip() or sha
           s = re.sub(r'versionCode\s+\d+', 'versionCode %d' % count, s, count=1)
@@ -100,10 +103,13 @@ jobs:
           APP_VERSION: ${{ inputs.version }}
         run: |
           python3 - <<'PY'
-          import os, re, pathlib, subprocess
+          import os, re, pathlib, subprocess, time
           p = pathlib.Path('android/app/build.gradle')
           s = p.read_text()
-          count = int(subprocess.check_output(['git', 'rev-list', '--count', 'HEAD']).decode().strip())
+          # Epoch seconds: always increases, and does not depend on git history
+          # (actions/checkout is a shallow clone, so a commit count would always
+          # read 1). Fits Android's 2,100,000,000 versionCode ceiling until 2036.
+          count = int(time.time())
           sha = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode().strip()
           version = os.environ.get('APP_VERSION', '').strip() or sha
           s = re.sub(r'versionCode\s+\d+', 'versionCode %d' % count, s, count=1)
