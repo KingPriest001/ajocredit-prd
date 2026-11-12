@@ -319,6 +319,9 @@ function authSkip(){try{localStorage.setItem('ajo_login_skipped','1')}catch(e){}
 function authShowGate(){try{localStorage.removeItem('ajo_login_skipped')}catch(e){}document.getElementById('authGate').classList.add('on');maybeAuthGate()}
 function maybeAuthGate(){var hard=window._ajoAuth===1,login=window._ajoLogin===1,tok=ajoToken();
   var g=document.getElementById('authGate'),skip=document.getElementById('authSkip'),card=document.getElementById('accSigninCard');
+  // Once the API is locked, "continue without signing in" is no longer possible:
+  // clear any stale flag so the gate always comes back.
+  if(hard&&loginSkipped()){try{localStorage.removeItem('ajo_login_skipped')}catch(e){}}
   if(card)card.style.display=tok?'none':'block';
   if((hard||login)&&!tok&&!loginSkipped()){g.classList.add('on');if(skip)skip.style.display=hard?'none':'block'}
   else{g.classList.remove('on')}}
