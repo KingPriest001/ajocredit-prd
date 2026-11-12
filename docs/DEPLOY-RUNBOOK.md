@@ -29,7 +29,23 @@ new APK. CI publishes the bundle and a manifest to the static site:
 - `https://kingpriest001.github.io/ajocredit-prd/bundle.json` → `{ version, url, sha256, rollback }`
 - `https://kingpriest001.github.io/ajocredit-prd/bundles/<version>.zip`
 
-The API decides who gets it: `GET /api/app/update?device_id=…&current=…`
+The updater plugin (`@capgo/capacitor-updater`, pinned to **6.53.0** — the last
+release that supports Capacitor 6) asks the API who should get the new bundle:
+
+`POST /api/app/update` with `{ device_id, version_name, platform, app_id, … }`
+
+The answer is `{ version, url, checksum }`:
+
+- `checksum` — SHA-256 of the zip. **Required**: without it the plugin refuses
+  to download ("Checksum required").
+- `version` — the bundle version. When it equals the version the phone is
+  already running, the plugin installs nothing. That is how "no update for you"
+  is expressed.
+- `url` — must always be present and valid, even when there is nothing to
+  install, or the plugin rejects the whole response.
+
+`GET /api/app/update?device_id=…&current=…` answers the same thing (used for
+manual checks).
 
 | Env var | Meaning |
 |---|---|
@@ -45,6 +61,10 @@ bad bundle get the previous good one on their next launch. The rollback bundle i
 the previous entry in `bundle.json` — always one build behind, so it is never lost.
 
 **After a bad web bundle, also re-cut a good APK** (the APK embeds the same assets).
+
+The plugin's usage stats and channel calls are pointed at our own API
+(`/api/app/stats`, `/api/app/channel`), so nothing about a member's phone is
+sent to Capgo's servers.
 
 ## Notifications (MVP)
 
@@ -110,11 +130,16 @@ existing installs. Verify the signer is `CN=AJOCREDIT, O=Qubators, L=Lagos, C=NG
 ### 4. Turn the hard lock on
 Render → Environment → `REQUIRE_AUTH` = `1` → save (triggers a redeploy).
 
+The same moment is the right place to start the **staged bundle rollout**:
+`APP_UPDATE_ROLLOUT=5` → watch → 25 → 50 → 100. `APP_UPDATE_ROLLBACK=0`.
+
 ### 5. Verify
 - `GET /api/auth/config` → `{"require_auth":true,"require_login":true}`
 - `GET /api/groups/mine?phone=…` **without** a token → **401**
 - With a valid token → **200**
 - Sign in on a real phone; confirm the code arrives and the app loads.
+- `POST /api/app/update` → `{"version":…,"url":…,"checksum":…}` (the plugin's
+  exact contract — see above).
 
 ## Rollback
 

@@ -17,6 +17,8 @@ const H = { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' }
 const SERVICE = 'srv-db44g5e0tbcc73d3d7tg';
 
 // The variables this script owns. Everything else already on the service is preserved.
+// Any of them can be overridden from the shell, e.g.
+//   $env:REQUIRE_AUTH='1'; $env:APP_UPDATE_ROLLOUT='25'; node render-env.mjs
 const managed = {
   USE_EXTERNAL_DB: '1',
   NODE_OPTIONS: '--max-old-space-size=384',
@@ -24,6 +26,20 @@ const managed = {
   PAYSTACK_PUBLIC_KEY: env.PAYSTACK_PUBLIC_KEY,
   PAYSTACK_SECRET_KEY: env.PAYSTACK_SECRET_KEY,
   TERMII_API_KEY: env.TERMII_API_KEY,
+  // SMS sender: "OE Alert" until Termii approves the "AJOCREDIT" sender ID.
+  TERMII_SENDER_ID: process.env.TERMII_SENDER_ID || 'OE Alert',
+  TERMII_CHANNEL: process.env.TERMII_CHANNEL || 'dnd',
+  TERMII_OTP_MODE: process.env.TERMII_OTP_MODE || 'auto',
+  // Transactional email (welcome + password reset). Skipped when not set locally.
+  RESEND_API_KEY: env.RESEND_API_KEY,
+  RESEND_FROM: env.RESEND_FROM,
+  // Lock the API: 1 = only a signed-in member can call it.
+  REQUIRE_AUTH: process.env.REQUIRE_AUTH || '0',
+  // Web-bundle rollout: ramp 5 -> 25 -> 50 -> 100. ROLLBACK=1 sends every
+  // device back to the last known good bundle.
+  APP_UPDATE_ROLLOUT: process.env.APP_UPDATE_ROLLOUT || '5',
+  APP_UPDATE_ROLLBACK: process.env.APP_UPDATE_ROLLBACK || '0',
+  APP_BUNDLE_MANIFEST: process.env.APP_BUNDLE_MANIFEST || 'https://kingpriest001.github.io/ajocredit-prd/bundle.json',
   PAYMENTS_MODE: 'direct',
 };
 

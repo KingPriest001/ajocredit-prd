@@ -27,7 +27,10 @@ jobs:
           java-version: 17
       # No setup-android: ubuntu-latest runners ship the Android SDK preinstalled (ANDROID_HOME).
       - run: npm init -y
-      - run: npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/assets @capgo/capacitor-updater
+      # @capgo/capacitor-updater 6.53.0 is the last release that supports
+      # Capacitor 6 (peer "@capacitor/core": "^6.0.0"). Newer versions need
+      # Capacitor 8 and npm refuses to install them here.
+      - run: npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/assets @capgo/capacitor-updater@6.53.0
       - run: npx cap init "AJOCREDIT" com.ajocredit.app --web-dir=prototype
       - run: npx cap add android
       - run: mkdir -p resources && cp prototype/icon-1024.png resources/icon.png && cp prototype/icon-1024.png resources/splash.png
@@ -60,6 +63,10 @@ jobs:
           PY
       # Tell the app where to look for web-bundle updates. The API decides who gets
       # the update (staged rollout) and can force a rollback to the last good bundle.
+      # statsUrl and channelUrl are pointed at our own API so nothing about a
+      # member's phone is sent to Capgo's servers.
+      # autoUpdate + directUpdate=false: the new bundle is downloaded in the
+      # background and installed on the next launch (no splash-screen plugin needed).
       - name: Configure the Capacitor Updater
         run: |
           python3 - <<'PY'
@@ -69,9 +76,12 @@ jobs:
           cfg['plugins'] = cfg.get('plugins', {})
           cfg['plugins']['CapacitorUpdater'] = {
             'updateUrl': 'https://ajocredit-api.onrender.com/api/app/update',
+            'statsUrl': 'https://ajocredit-api.onrender.com/api/app/stats',
+            'channelUrl': 'https://ajocredit-api.onrender.com/api/app/channel',
             'autoUpdate': True,
-            'directUpdate': True,
-            'periodCheckDelay': 60,
+            'directUpdate': False,
+            'periodCheckDelay': 600,
+            'appReadyTimeout': 30000,
             'autoDeleteFailed': True,
             'autoDeletePrevious': True,
             'responseTimeout': 20,
@@ -177,7 +187,10 @@ jobs:
           distribution: temurin
           java-version: 17
       - run: npm init -y
-      - run: npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/assets @capgo/capacitor-updater
+      # @capgo/capacitor-updater 6.53.0 is the last release that supports
+      # Capacitor 6 (peer "@capacitor/core": "^6.0.0"). Newer versions need
+      # Capacitor 8 and npm refuses to install them here.
+      - run: npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/assets @capgo/capacitor-updater@6.53.0
       - run: npx cap init "AJOCREDIT" com.ajocredit.app --web-dir=prototype
       - run: npx cap add android
       - run: mkdir -p resources && cp prototype/icon-1024.png resources/icon.png && cp prototype/icon-1024.png resources/splash.png
@@ -215,9 +228,12 @@ jobs:
           cfg['plugins'] = cfg.get('plugins', {})
           cfg['plugins']['CapacitorUpdater'] = {
             'updateUrl': 'https://ajocredit-api.onrender.com/api/app/update',
+            'statsUrl': 'https://ajocredit-api.onrender.com/api/app/stats',
+            'channelUrl': 'https://ajocredit-api.onrender.com/api/app/channel',
             'autoUpdate': True,
-            'directUpdate': True,
-            'periodCheckDelay': 60,
+            'directUpdate': False,
+            'periodCheckDelay': 600,
+            'appReadyTimeout': 30000,
             'autoDeleteFailed': True,
             'autoDeletePrevious': True,
             'responseTimeout': 20,
