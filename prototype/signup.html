@@ -16,6 +16,16 @@ h1{font-size:22px;margin:0 0 4px}
 .btn.green{background:var(--green);color:#fff}
 .btn.sec{background:transparent;color:var(--txt);border:1.5px solid #2c3f33;border-radius:999px}
 .btn:disabled{opacity:.4}
+/* Interaction states - a tap must be visible. */
+.btn:hover{filter:brightness(1.1)}
+.btn:active{transform:translateY(1px);filter:brightness(.88)}
+.btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.btn.sec:hover{border-color:var(--gold);color:var(--gold)}
+.btn.sec:active{background:rgba(217,164,65,.16)}
+/* Skip email - a tappable gold accent, not a dead grey pill. */
+.btn.skip{border-color:var(--gold);color:var(--gold)}
+.btn.skip:hover{background:rgba(217,164,65,.14);color:var(--gold)}
+.btn.skip:active{background:rgba(217,164,65,.32);transform:translateY(1px);filter:none}
 input{width:100%;padding:14px;font-size:16px;border-radius:10px;border:1px solid #2c3f33;margin:6px 0;background:var(--card2);color:var(--txt)}
 input:focus{outline:none;border-color:var(--gold)}
 label{display:block;font-size:13px;color:var(--mut);margin-top:12px}
@@ -43,7 +53,7 @@ a{color:var(--gold)}
   <label for="suEmail">Email (optional - if you have one)</label>
   <div style="display:flex;gap:8px;align-items:center">
     <input id="suEmail" type="email" placeholder="you@example.com" autocomplete="email" style="flex:1;margin:6px 0">
-    <button class="btn sec" type="button" onclick="skipEmail()" style="width:auto;flex:0 0 auto;margin:6px 0;padding:14px 20px">Skip</button>
+    <button class="btn sec skip" type="button" onclick="skipEmail()" style="width:auto;flex:0 0 auto;margin:6px 0;padding:14px 20px">Skip</button>
   </div>
   <p class="note">No email? Tap Skip — you can still sign in with your phone number.</p>
 
