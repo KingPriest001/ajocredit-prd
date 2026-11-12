@@ -260,16 +260,6 @@ async function main() {
 
   // Auth: Bearer session token. Enforced only when REQUIRE_AUTH=1 (pilot stays open, production locks).
   // Clients poll /api/auth/config so the login gate turns on/off with the same switch — no app update needed.
-  // TEMPORARY DIAGNOSTIC - remove after use.
-  // Exposes only a SHA-256 prefix of the Termii key so we can prove whether the key
-  // deployed on Render is the same one as the developer's local .env. No secret
-  // material is revealed (the key is 47 chars of high entropy; this is the same
-  // kind of fingerprint GitHub/Docker publish for images).
-  app.get('/api/auth/keyfingerprint', (req, res) => {
-    const k = process.env.TERMII_API_KEY || '';
-    res.json({ fingerprint: crypto.createHash('sha256').update(k).digest('hex').slice(0, 16), length: k.length });
-  });
-
   app.get('/api/auth/config', (req, res) => {
     res.json({ require_auth: authOn(), require_login: loginOn(), app: 'ajocredit' });
   });
