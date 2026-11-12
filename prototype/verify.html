@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AJOCREDIT — Verify your phone</title>
+<style>
+:root{--bg:#0B120E;--card:#15211B;--card2:#182820;--gold:#D9A441;--green:#1E7A4C;--txt:#F5F5F2;--mut:#9DB0A4;--success:#22C55E;--err:#F87171;--radius:16px}
+*{box-sizing:border-box}body{margin:0;font-family:Roboto,System-UI,-apple-system,Arial,sans-serif;background:#060906;color:var(--txt)}
+.phone{max-width:400px;margin:16px auto;background:var(--bg);border-radius:28px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.6);min-height:600px;display:flex;flex-direction:column}
+.live{background:var(--gold);color:#111;padding:7px 16px;font-size:11px;font-weight:700}
+.card{background:var(--card);border-radius:var(--radius);padding:16px;margin:12px 16px}
+h1{font-size:22px;margin:0 0 4px}
+.muted{color:var(--mut);font-size:13px}.note{font-size:12px;color:var(--mut);margin:4px 0 0}
+.btn{display:block;width:100%;border:0;border-radius:12px;padding:16px;font-size:16px;font-weight:800;cursor:pointer;background:var(--gold);color:#111;margin-top:8px}
+.btn.green{background:var(--green);color:#fff}
+.btn.sec{background:transparent;color:var(--txt);border:1.5px solid #2c3f33;border-radius:999px}
+.btn:disabled{opacity:.45}
+input{width:100%;padding:14px;font-size:16px;border-radius:10px;border:1px solid #2c3f33;margin:6px 0;background:var(--card2);color:var(--txt)}
+input:focus{outline:none;border-color:var(--gold)}
+label{display:block;font-size:13px;color:var(--mut);margin-top:12px}
+a{color:var(--gold)}
+.err{color:var(--err);font-size:13px;min-height:20px;margin:10px 0 0}
+.ok{color:var(--success);font-size:13px;margin:10px 0 0}
+.code{letter-spacing:8px;text-align:center;font-size:24px;font-weight:800}
+.foot{text-align:center;padding:0 16px 24px;font-size:13px}
+</style>
+</head>
+<body>
+<div class="phone">
+<div class="live">Turn your Ajo into bank credit — save with your people, build a real financial identity.</div>
+<div class="card">
+  <h1>Verify your phone</h1>
+  <p class="muted">We sent a 6-digit code to <b id="vPhone">your phone</b>. It expires in 5 minutes.</p>
+
+  <label for="vCode">Enter the code</label>
+  <input id="vCode" class="code" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code">
+
+  <p class="err" id="vErr"></p>
+  <button class="btn green" id="vBtn" onclick="verify()">Verify &amp; continue</button>
+  <button class="btn sec" id="vResend" onclick="resend()" style="margin-top:10px">Resend code</button>
+</div>
+<p class="foot muted"><a href="index.html">← Back to app</a></p>
+</div>
+<script src="version.js"></script>
+<script>
+var API_BASES=['https://ajocredit-api.onrender.com','http://localhost:4000'];
+function api(path,opts){opts=opts||{};var i=0;function attempt(){if(i>=API_BASES.length)return Promise.resolve(null);var url=API_BASES[i++];try{var ac=new AbortController();var to=setTimeout(function(){ac.abort()},30000);return fetch(url+path,Object.assign({},opts,{signal:ac.signal})).then(function(r){clearTimeout(to);return r.text().then(function(t){try{var b=JSON.parse(t);b.__status=r.status;return b}catch(e){return{__status:r.status,error:'Unexpected reply from the server.'}}})}).catch(function(){clearTimeout(to);return attempt()})}catch(e){return attempt()}}return attempt()}
+function q(name){var m=new RegExp('[?&]'+name+'=([^&]*)').exec(location.search);return m?decodeURIComponent(m[1].replace(/\+/g,' ')):''}
+function deviceId(){var d='';try{d=localStorage.getItem('ajo_device')||''}catch(e){}if(!d){d='web-'+Math.random().toString(36).slice(2)+Date.now().toString(36);try{localStorage.setItem('ajo_device',d)}catch(e){}}return d}
+var PHONE=q('phone'), PURPOSE=q('purpose');
+try{if(!PHONE)PHONE=localStorage.getItem('ajo_phone')||''}catch(e){}
+document.getElementById('vPhone').textContent=PHONE||'your phone';
+if(PURPOSE){document.getElementById('vErr').textContent=''}
+// Resend countdown - the server owns the rule, so ask it how long to wait.
+var wait=60, btn=document.getElementById('vResend');
+function tick(){btn.disabled=wait>0;btn.textContent=wait>0?('Resend code in '+wait+'s'):'Resend code';if(wait>0){wait--;setTimeout(tick,1000)}}
+tick();
+api('/api/auth/config').then(function(c){if(c&&c.otp_resend_cooldown){wait=c.otp_resend_cooldown;tick()}}).catch(function(){});
+function verify(){
+  var e=document.getElementById('vErr');e.textContent='';
+  var c=document.getElementById('vCode').value.replace(/\D/g,'');
+  if(c.length!==6){e.textContent='Enter the 6-digit code.';return}
+  if(!PHONE){e.textContent='We do not know which number to verify. Please sign in again.';return}
+  var b=document.getElementById('vBtn');b.disabled=true;
+  var body={phone:PHONE,code:c,device_id:deviceId()};
+  if(PURPOSE)body.purpose=PURPOSE;
+  api('/api/otp/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(j){
+    b.disabled=false;
+    if(j&&j.ok&&j.token){
+      try{localStorage.setItem('ajo_token',j.token);localStorage.setItem('ajo_phone',PHONE);localStorage.removeItem('ajo_login_skipped')}catch(e){}
+      location.href='index.html';return;
+    }
+    var m=(j&&j.error)||'That code is not right. Please try again.';
+    if(j&&j.attempts_left!==undefined)m+=' ('+j.attempts_left+' attempt'+(j.attempts_left===1?'':'s')+' left)';
+    e.textContent=m;
+  }).catch(function(){b.disabled=false;e.textContent='Could not reach the server. Please try again.'});
+}
+function resend(){
+  if(!PHONE){document.getElementById('vErr').textContent='We do not know which number to send to. Please sign in again.';return}
+  var e=document.getElementById('vErr');e.textContent='';
+  var b=btn;b.disabled=true;
+  api('/api/auth/resend',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:PHONE,purpose:PURPOSE||'login'})}).then(function(j){
+    if(j&&j.ok){wait=60;tick();e.className='ok';e.textContent='We sent a new code.'}
+    else{e.className='err';e.textContent=(j&&j.error)||'Could not send a code. Please try again.';if(j&&j.retry_after){wait=j.retry_after;tick()}}
+  }).catch(function(){e.className='err';e.textContent='Could not reach the server. Please try again.'});
+}
+document.getElementById('vCode').addEventListener('input',function(e){e.target.value=e.target.value.replace(/\D/g,'').slice(0,6)});
+</script>
+</body>
+</html>

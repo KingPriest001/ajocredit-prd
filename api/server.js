@@ -177,6 +177,11 @@ async function main() {
       status TEXT NOT NULL DEFAULT 'queued',
       detail TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());`);
+  // Task 3: password accounts + explicit phone verification. Existing members already
+  // proved their phone with an OTP, so they default to verified.
+  await exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;`);
 
   // ---- Notifications (MVP) --------------------------------------------------
   // In-app notifications are the channel for group activity: a contribution is
@@ -261,7 +266,7 @@ async function main() {
   // Auth: Bearer session token. Enforced only when REQUIRE_AUTH=1 (pilot stays open, production locks).
   // Clients poll /api/auth/config so the login gate turns on/off with the same switch — no app update needed.
   app.get('/api/auth/config', (req, res) => {
-    res.json({ require_auth: authOn(), require_login: loginOn(), app: 'ajocredit' });
+    res.json({ require_auth: authOn(), require_login: loginOn(), app: 'ajocredit', otp_resend_cooldown: Math.round(OTP_RESEND_COOLDOWN_MS / 1000) });
   });
   async function auth(req, res, next) {
     if (process.env.REQUIRE_AUTH !== '1') { req.user = null; return next(); }
@@ -319,7 +324,10 @@ async function main() {
   // pin_id, and Termii's Verify API is the authoritative check. Codes live in the DB
   // (not memory) so a redeploy can't strand a member mid-login.
   const OTP_LENGTH = 6;
-  const OTP_TTL_MIN = 5;
+  // 10 minutes, matching the DND-approved message template. Termii will block
+  // any variation of the wording, so the message comes from config/termii.js.
+  const OTP_TTL_MIN = Math.max(1, parseInt(process.env.OTP_TTL_MIN || '10', 10) || 10);
+  const { buildOtpMessage } = require('../config/termii');
   const OTP_MAX_ATTEMPTS = 3;
   const OTP_MAX_SENDS_PER_HOUR = 3;
   const OTP_PURPOSES = ['signup', 'login', 'reset'];
@@ -345,50 +353,88 @@ async function main() {
   //   termii.generateOtp(phone, {length, ttlMinutes, attempts}) -> { otp, pinId }
   //   termii.verifyOtp(pinId, pin)                            -> { ok }
   // The plaintext code is used only to build the message; it is never stored or logged.
+  // ---- Password accounts (Task 3) --------------------------------------------
+  // bcryptjs with 10 rounds - pure JS, so Render needs no native toolchain.
+  const bcrypt = require('bcryptjs');
+  const BCRYPT_ROUNDS = 10;
+  // How long a member must wait before another code can be requested for the same
+  // number. Termii's own OTP endpoint enforces 60s, so this matches the provider.
+  const OTP_RESEND_COOLDOWN_MS = Math.max(0, parseInt(process.env.OTP_RESEND_COOLDOWN_SEC || '60', 10) || 0) * 1000;
+  function passwordOk(p) {
+    const s = String(p || '');
+    if (s.length < 8 || s.length > 72) return false;   // bcrypt ignores bytes past 72
+    if (!/[A-Za-z]/.test(s) || !/\d/.test(s)) return false;
+    return true;
+  }
+  function emailOk(e) {
+    const s = String(e || '').trim();
+    return s.length >= 5 && s.length <= 160 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s);
+  }
+  // Opaque session token: random 256-bit, stored hashed, 30-day expiry, device bound.
+  async function issueSession(userId, deviceId) {
+    const token = crypto.randomBytes(32).toString('hex');
+    const thash = crypto.createHash('sha256').update(token).digest('hex');
+    await q(`INSERT INTO sessions (id, user_id, token_hash, device_id, expires_at) VALUES ($1,$2,$3,$4,NOW() + INTERVAL '30 days')`,
+      [`se-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`, userId, thash, deviceId || '']);
+    return token;
+  }
+  async function publicUser(u) {
+    return { id: u.id, name: u.name, phone: u.phone, email: u.email || '',
+      ajocredit_id: u.ajocredit_id, score: u.score, tier: u.tier || tierFor(u.score),
+      verified: u.phone_verified !== false };
+  }
+  // Send a phone code for a purpose: hourly cap, 60-second cooldown, then Termii.
+  async function sendOtpTo(norm, pur) {
+    const sent = await q(`SELECT COUNT(*)::int AS n FROM otp_codes WHERE phone=$1 AND created_at > NOW() - INTERVAL '1 hour'`, [norm]);
+    if (sent.length && sent[0].n >= OTP_MAX_SENDS_PER_HOUR) {
+      return { ok: false, reason: 'rate_limit', detail: 'too many codes requested - please try again in an hour' };
+    }
+    const last = await q(`SELECT created_at FROM otp_codes WHERE phone=$1 ORDER BY created_at DESC LIMIT 1`, [norm]);
+    if (last.length) {
+      const waitMs = OTP_RESEND_COOLDOWN_MS - (Date.now() - new Date(last[0].created_at).getTime());
+      // A code is already on its way - say so, rather than reporting that nothing was sent.
+      if (waitMs > 0) return { ok: false, reason: 'rate_limit', already_sent: true, detail: 'please wait before requesting another code', retry_after: Math.ceil(waitMs / 1000) };
+    }
+    const gen = await termii.generateOtp(norm.replace(/^\+/, ''), { length: OTP_LENGTH, ttlMinutes: OTP_TTL_MIN, attempts: OTP_MAX_ATTEMPTS });
+    if (!gen.ok) return { ok: false, reason: 'provider', detail: gen.detail };
+    const smsText = buildOtpMessage(gen.otp);
+    const s1 = await termii.sendSms(norm, smsText);
+    if (!s1.delivered) return { ok: false, reason: 'provider', detail: s1.detail };
+    // Store ONLY a salted hash of the code - never the code itself.
+    const salt = crypto.randomBytes(16).toString('hex');
+    await q(`INSERT INTO otp_codes (id, phone, purpose, pin_id, code_hash, salt, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [`otp-${Date.now()}-${crypto.randomBytes(5).toString('hex')}`, norm, pur, gen.pinId, otpHash(salt, gen.otp), salt, new Date(Date.now() + OTP_TTL_MIN * 60 * 1000)]);
+    return { ok: true, detail: 'sent' };
+  }
+  // One shape for "we could not send that code": 429 when it is our rate limit,
+  // 503 when Termii itself failed.
+  function otpSendError(res, sent) {
+    const status = sent && sent.reason === 'rate_limit' ? 429 : 503;
+    let message;
+    if (sent && sent.retry_after) message = `Please wait ${sent.retry_after}s before requesting another code.`;
+    else if (sent && sent.reason === 'rate_limit') message = 'Too many codes requested - please try again in an hour.';
+    else message = 'Could not send code. Please try again.';
+    return res.status(status).json({ ok: false, error: message, detail: sent && sent.detail, retry_after: (sent && sent.retry_after) || 0 });
+  }
   app.post('/api/otp/send', async (req, res) => {
     const { phone, purpose } = req.body || {};
     const norm = normPhone(phone);
-    if (!norm) return res.status(400).json({ error: 'valid Nigerian phone required (e.g. 08031234567)' });
-    // Purpose: signup / login / reset. If the client doesn't say, the server decides
-    // from whether the phone is already registered. The purpose is NOT echoed back,
-    // so this cannot be used to discover who already has an account.
+    if (!norm) return res.status(400).json({ error: 'valid Nigerian phone required' });
     let pur = OTP_PURPOSES.includes(purpose) ? purpose : null;
     if (!pur) {
       const u = await q('SELECT id FROM users WHERE phone=$1', [norm]);
       pur = u.length ? 'login' : 'signup';
     }
-    // Max 3 codes per hour per phone number (the resend limit).
-    const sent = await q(`SELECT COUNT(*)::int AS n FROM otp_codes WHERE phone=$1 AND created_at > NOW() - INTERVAL '1 hour'`, [norm]);
-    if (sent.length && sent[0].n >= OTP_MAX_SENDS_PER_HOUR) {
-      return res.status(429).json({ error: 'too many codes requested - please try again in an hour' });
+    const sent = await sendOtpTo(norm, pur);
+    if (!sent.ok) {
+      return otpSendError(res, sent);
     }
-    // Generate the code with Termii; we keep only a hash of it.
-    const gen = await termii.generateOtp(norm.replace(/^\+/, ''), { length: OTP_LENGTH, ttlMinutes: OTP_TTL_MIN, attempts: OTP_MAX_ATTEMPTS });
-    if (!gen.ok) {
-      // Friendly, non-technical error - the app must not crash on a Termii outage.
-      return res.status(503).json({ ok: false, error: 'Could not send code. Please try again.', detail: gen.detail });
-    }
-    const smsText = pur === 'reset'
-      ? `Your AJOCREDIT reset code is ${gen.otp}. Expires in ${OTP_TTL_MIN} minutes.`
-      : `Your AJOCREDIT code is ${gen.otp}. Expires in ${OTP_TTL_MIN} minutes.`;
-    // Deliver it over Termii. Only report "sent" when Termii actually delivered it.
-    const s1 = await termii.sendSms(norm, smsText);
-    if (!s1.delivered) {
-      // Friendly, non-technical error - the app must not crash on a Termii outage.
-      return res.status(503).json({ ok: false, error: 'Could not send code. Please try again.', detail: s1.detail });
-    }
-    // Store ONLY a salted hash of the code - never the code itself.
-    const salt = crypto.randomBytes(16).toString('hex');
-    await q(`INSERT INTO otp_codes (id, phone, purpose, pin_id, code_hash, salt, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [`otp-${Date.now()}-${crypto.randomBytes(5).toString('hex')}`, norm, pur, gen.pinId, otpHash(salt, gen.otp), salt, new Date(Date.now() + OTP_TTL_MIN * 60 * 1000)]);
     // A password-reset request also emails the member a notice. The reset code
     // itself always goes by SMS to the phone - it is never emailed.
     if (pur === 'reset') {
       try {
         const u = await q('SELECT name, phone, email FROM users WHERE phone=$1', [norm]);
-        if (u.length) {
-          await mailer.passwordResetEmail({ name: u[0].name, email: u[0].email, phone: u[0].phone, record: recordEmail });
-        }
+        if (u.length) await mailer.passwordResetEmail({ name: u[0].name, email: u[0].email, phone: u[0].phone, record: recordEmail });
       } catch (e) {}
     }
     res.json({ ok: true, mode: 'termii', expires_in: OTP_TTL_MIN * 60 });
@@ -429,8 +475,8 @@ async function main() {
       const isNew = !u.length;
       const mail = String(email || '').trim().slice(0, 160);
       if (isNew) {
-        const uid = `u-${Date.now()}`, aj = 'AJ-' + Math.floor(100000 + Math.random() * 900000);
-        // Account creation: the first successful OTP for a phone creates the member.
+        const uid = `u-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`, aj = 'AJ-' + Math.floor(100000 + Math.random() * 900000);
+        // Legacy one-tap sign-up: the first successful OTP for a phone creates the member.
         // Name is optional - fall back to a neutral placeholder.
         const nm = String(name || '').trim().slice(0, 60) || 'New Member';
         await q(`INSERT INTO users (id, phone, name, email, verification, ajocredit_id, score, tier, provisional) VALUES ($1,$2,$3,$4,'OTP',$5,250,'Bronze',TRUE)`, [uid, norm, nm, mail || null, aj]);
@@ -445,26 +491,177 @@ async function main() {
         // existing session before a fresh one is issued.
         await q('UPDATE sessions SET expires_at=NOW() WHERE user_id=$1', [u[0].id]);
       }
+      // The phone is proven, so the member counts as verified.
+      await q('UPDATE users SET phone_verified=TRUE, verified_at=COALESCE(verified_at,NOW()) WHERE id=$1', [u[0].id]);
+      u = await q('SELECT * FROM users WHERE id=$1', [u[0].id]);
       if (device_id) {
         await q(`INSERT INTO devices (id, user_id, device_id, last_seen) VALUES ($1,$2,$3,NOW())
           ON CONFLICT (user_id, device_id) DO UPDATE SET last_seen=NOW()`, [`dv-${Date.now()}`, u[0].id, device_id]);
       }
       await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id, detail) VALUES ($1,$2,$3,'user',$4,$5)`,
         [`al-${Date.now()}`, u[0].id, `otp.${rec.purpose}`, u[0].id, JSON.stringify({ purpose: rec.purpose, created: isNew })]);
-      // Session token: random 256-bit, stored hashed, 30-day expiry, bound to device.
-      const token = crypto.randomBytes(32).toString('hex');
-      const thash = crypto.createHash('sha256').update(token).digest('hex');
-      await q(`INSERT INTO sessions (id, user_id, token_hash, device_id, expires_at) VALUES ($1,$2,$3,$4,NOW() + INTERVAL '30 days')`,
-        [`se-${Date.now()}`, u[0].id, thash, device_id || '']);
+      const token = await issueSession(u[0].id, device_id);
       // Welcome the new member - SMS and email, once, at sign-up only.
       if (isNew) {
         const wtxt = `Welcome to AJOCREDIT! Your ID is ${u[0].ajocredit_id}. Your score starts at 250 (Bronze). Open the app to create or join a group.`;
         termii.sendSms(norm, wtxt).then((r) => { if (!r.delivered) console.log('welcome sms failed: ' + r.detail); });
         await mailer.welcomeEmail({ name: u[0].name, email: u[0].email, ajocreditId: u[0].ajocredit_id, record: recordEmail });
       }
-      res.json({ ok: true, ajocredit_id: u[0].ajocredit_id, user_id: u[0].id, token, purpose: rec.purpose, created: isNew });
+      res.json({ ok: true, ajocredit_id: u[0].ajocredit_id, user_id: u[0].id, token, purpose: rec.purpose, created: isNew, user: await publicUser(u[0]) });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
+
+  // ---- Account creation, login, password reset (Task 3) --------------------
+  // Signup creates the account and sends the phone code. The member is NOT verified
+  // yet, so they cannot reach the dashboard until the code is entered.
+  app.post('/api/auth/signup', async (req, res) => {
+    const { name, phone, email, password, terms } = req.body || {};
+    const norm = normPhone(phone);
+    if (!norm) return res.status(400).json({ error: 'Enter a valid Nigerian phone number (e.g. 08031234567)' });
+    const nm = String(name || '').trim().slice(0, 60);
+    if (nm.length < 2) return res.status(400).json({ error: 'Enter your full name' });
+    const em = String(email || '').trim().slice(0, 160);
+    if (!emailOk(em)) return res.status(400).json({ error: 'Enter a valid email address' });
+    if (!passwordOk(password)) return res.status(400).json({ error: 'Password must be at least 8 characters, with a letter and a number' });
+    if (terms !== true && terms !== 'true' && terms !== 'on' && terms !== 1) return res.status(400).json({ error: 'Please accept the Terms to continue' });
+    // Phone numbers are unique.
+    const ex = await q('SELECT id FROM users WHERE phone=$1', [norm]);
+    if (ex.length) return res.status(409).json({ error: 'That phone number is already registered. Sign in instead.' });
+    const uid = `u-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+    const aj = 'AJ-' + Math.floor(100000 + Math.random() * 900000);
+    let hash;
+    try { hash = await bcrypt.hash(String(password), BCRYPT_ROUNDS); }
+    catch (e) { return res.status(500).json({ error: 'Could not create your account. Try again.' }); }
+    try {
+      await q(`INSERT INTO users (id, phone, name, email, password_hash, phone_verified, verification, ajocredit_id, score, tier, provisional) VALUES ($1,$2,$3,$4,$5,FALSE,'OTP',$6,250,'Bronze',TRUE)`, [uid, norm, nm, em, hash, aj]);
+    } catch (e) {
+      if (/duplicate|unique/i.test(e.message || '')) return res.status(409).json({ error: 'That phone number is already registered. Sign in instead.' });
+      return res.status(500).json({ error: 'Could not create your account. Try again.' });
+    }
+    await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'auth.signup','user',$3)`, [`al-${Date.now()}`, uid, uid]);
+    const sent = await sendOtpTo(norm, 'signup');
+    if (!sent.ok) {
+      return otpSendError(res, sent);
+    }
+    res.json({ ok: true, phone: norm, needs_verification: true });
+  });
+
+  // Login with phone + password. A member whose phone is not verified yet gets a
+  // code and is sent to the verify page.
+  app.post('/api/auth/login', async (req, res) => {
+    const { phone, password, device_id } = req.body || {};
+    const norm = normPhone(phone);
+    if (!norm) return res.status(400).json({ error: 'Enter a valid Nigerian phone number' });
+    const u = await q('SELECT * FROM users WHERE phone=$1', [norm]);
+    if (!u.length) return res.status(401).json({ error: 'We do not recognise that phone number or password.' });
+    if (!u[0].password_hash) {
+      // Older account: it signs in with a one-time code instead of a password.
+      const sent = await sendOtpTo(norm, 'login');
+      return res.status(403).json({
+        error: 'This account signs in with a one-time code - we just sent one to your phone.',
+        code_sent: sent.ok || sent.already_sent === true, phone: norm, retry_after: sent.retry_after || 0,
+      });
+    }
+    let good = false;
+    try { good = await bcrypt.compare(String(password || ''), u[0].password_hash); } catch (e) { good = false; }
+    if (!good) return res.status(401).json({ error: 'Wrong password. Check it and try again.' });
+    if (u[0].phone_verified === false) {
+      const sent = await sendOtpTo(norm, 'login');
+      return res.status(403).json({
+        error: 'Your phone number is not verified yet. Enter the code we just sent.',
+        unverified: true, code_sent: sent.ok || sent.already_sent === true, phone: norm, retry_after: sent.retry_after || 0,
+      });
+    }
+    const token = await issueSession(u[0].id, device_id);
+    await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'auth.login','user',$3)`, [`al-${Date.now()}`, u[0].id, u[0].id]);
+    res.json({ ok: true, token, user: await publicUser(u[0]) });
+  });
+
+  // Resend a code (60s cooldown, 3 per hour per number).
+  app.post('/api/auth/resend', async (req, res) => {
+    const { phone, purpose } = req.body || {};
+    const norm = normPhone(phone);
+    if (!norm) return res.status(400).json({ error: 'Enter a valid Nigerian phone number' });
+    const pur = OTP_PURPOSES.includes(purpose) ? purpose : 'login';
+    const sent = await sendOtpTo(norm, pur);
+    if (!sent.ok) {
+      return otpSendError(res, sent);
+    }
+    res.json({ ok: true, expires_in: OTP_TTL_MIN * 60 });
+  });
+
+  // Forgot password: phone -> code. We never say whether the number is registered.
+  app.post('/api/auth/forgot', async (req, res) => {
+    const { phone } = req.body || {};
+    const norm = normPhone(phone);
+    if (!norm) return res.status(400).json({ error: 'Enter a valid Nigerian phone number' });
+    const u = await q('SELECT id, name, email FROM users WHERE phone=$1', [norm]);
+    if (!u.length) return res.json({ ok: true, message: 'If that number is registered, a code is on its way.' });
+    const sent = await sendOtpTo(norm, 'reset');
+    if (!sent.ok) {
+      return otpSendError(res, sent);
+    }
+    try { await mailer.passwordResetEmail({ name: u[0].name, email: u[0].email, phone: norm, record: recordEmail }); } catch (e) {}
+    res.json({ ok: true, message: 'If that number is registered, a code is on its way.' });
+  });
+
+  // Reset password with the code we sent.
+  app.post('/api/auth/reset', async (req, res) => {
+    const { phone, code, password, device_id } = req.body || {};
+    const norm = normPhone(phone);
+    if (!norm) return res.status(400).json({ error: 'Enter a valid Nigerian phone number' });
+    if (!passwordOk(password)) return res.status(400).json({ error: 'Password must be at least 8 characters, with a letter and a number' });
+    const rows = await q(`SELECT * FROM otp_codes WHERE phone=$1 AND verified_at IS NULL ORDER BY created_at DESC LIMIT 1`, [norm]);
+    if (!rows.length) return res.status(400).json({ error: 'Request a code first.' });
+    const rec = rows[0];
+    if (rec.purpose !== 'reset') return res.status(400).json({ error: 'That code was sent for a different request - please request a new one.' });
+    if (new Date(rec.expires_at).getTime() < Date.now()) return res.status(401).json({ error: 'expired' });
+    if (rec.attempts >= OTP_MAX_ATTEMPTS) return res.status(429).json({ error: 'too many attempts - please request a new code' });
+    const pin = String(code || '').replace(/\D/g, '');
+    const local = otpSafeEqual(rec.code_hash, otpHash(rec.salt, pin));
+    let v = { ok: false, detail: 'mismatch' };
+    if (local) v = rec.pin_id ? await termii.verifyOtp(rec.pin_id, pin) : { ok: true, detail: 'no pin id' };
+    if (!local || !v.ok) {
+      await q('UPDATE otp_codes SET attempts=attempts+1 WHERE id=$1', [rec.id]);
+      return res.status(401).json({ error: 'invalid', attempts_left: Math.max(0, OTP_MAX_ATTEMPTS - (rec.attempts + 1)) });
+    }
+    const u = await q('SELECT * FROM users WHERE phone=$1', [norm]);
+    if (!u.length) return res.status(404).json({ error: 'We do not recognise that phone number.' });
+    const hash = await bcrypt.hash(String(password), BCRYPT_ROUNDS);
+    await q('UPDATE users SET password_hash=$1, phone_verified=TRUE, verified_at=COALESCE(verified_at,NOW()) WHERE id=$2', [hash, u[0].id]);
+    await q('UPDATE otp_codes SET verified_at=NOW() WHERE id=$1', [rec.id]);
+    // The password changed: drop every existing session before issuing a new one.
+    await q('UPDATE sessions SET expires_at=NOW() WHERE user_id=$1', [u[0].id]);
+    const token = await issueSession(u[0].id, device_id);
+    await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'auth.reset','user',$3)`, [`al-${Date.now()}`, u[0].id, u[0].id]);
+    const fresh = await q('SELECT * FROM users WHERE id=$1', [u[0].id]);
+    res.json({ ok: true, token, user: await publicUser(fresh[0]) });
+  });
+
+  // Logout: kill the session this request is carrying.
+  app.post('/api/auth/logout', async (req, res) => {
+    try {
+      const raw = String(req.headers.authorization || '').replace(/^Bearer /, '').trim();
+      if (raw) {
+        const thash = crypto.createHash('sha256').update(raw).digest('hex');
+        await q('UPDATE sessions SET expires_at=NOW() WHERE token_hash=$1', [thash]);
+      }
+    } catch (e) {}
+    res.json({ ok: true });
+  });
+
+  // Who am I - used by the app to check the phone is verified before the dashboard.
+  app.get('/api/auth/me', async (req, res) => {
+    const raw = String(req.headers.authorization || '').replace(/^Bearer /, '').trim();
+    if (!raw) return res.status(401).json({ error: 'sign in required' });
+    const thash = crypto.createHash('sha256').update(raw).digest('hex');
+    const s = await q('SELECT user_id FROM sessions WHERE token_hash=$1 AND expires_at > NOW()', [thash]);
+    if (!s.length) return res.status(401).json({ error: 'sign in required' });
+    const u = await q('SELECT * FROM users WHERE id=$1', [s[0].user_id]);
+    if (!u.length) return res.status(401).json({ error: 'sign in required' });
+    res.json({ ok: true, user: await publicUser(u[0]) });
+  });
+
   // Request log: every money/score write also lands in audit_log at its handler.
 
   // WhatsApp Cloud API webhook (auto-response). Meta verifies with GET; messages arrive via POST.

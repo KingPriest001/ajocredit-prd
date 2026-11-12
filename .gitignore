@@ -4,6 +4,7 @@ dist/
 .env
 prototype/config.local.js
 api/.pglite-data/
+api/.pglite-data.bak*/
 backups/
 logs/
 *.log

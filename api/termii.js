@@ -12,7 +12,10 @@ function cfg() {
   return {
     base: (process.env.TERMII_BASE_URL || DEFAULT_BASE).replace(/\/$/, ''),
     key: process.env.TERMII_API_KEY,
-    from: process.env.TERMII_SENDER_ID || 'Ajocredit',
+    // "OE Alert" is the DND-approved default sender on the account. AJOCREDIT is a
+    // separate sender ID still awaiting Termii approval - do not use it yet.
+    from: process.env.TERMII_SENDER_ID || 'OE Alert',
+    channel: process.env.TERMII_CHANNEL || 'dnd',
   };
 }
 
@@ -37,16 +40,16 @@ async function post(path, body) {
 // accepted it (message_id present, no error text) - a rejected send must never be
 // reported as success, that is how users get silently locked out.
 async function sendSms(phone, text) {
-  const { key, from } = cfg();
+  const { key, from, channel } = cfg();
   if (!configured()) return { delivered: false, detail: 'termii key not configured' };
   try {
     const r = await post('/api/sms/send', {
       api_key: key,
       to: String(phone).replace(/^\+/, ''),
       from,
+      channel,
       sms: String(text),
       type: 'plain',
-      channel: 'generic',
     });
     const b = r.body || {};
     const delivered = r.ok && !!b.message_id && !/NOT_APPROVED|Validation|error/i.test(String(b.message || ''));

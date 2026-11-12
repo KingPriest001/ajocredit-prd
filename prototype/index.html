@@ -236,6 +236,7 @@ summary{font-weight:800;cursor:pointer}
 <select id="langsel" onchange="setLang(this.value)"><option value="pg">Pidgin</option><option value="en">English</option><option value="yo">Yoruba</option><option value="ha">Hausa</option><option value="ig">Igbo</option></select></div>
 <div class="card"><div class="row"><div><b>🧕 Mama Bola guide</b><div class="muted">Stuck? Take the 1-minute walkthrough.</div></div><button class="btn green" style="width:auto;margin:0;padding:14px 20px" onclick="coachStart()">Start</button></div></div>
 <details><summary><b>🎁 Rewards & help</b></summary><div class="card"><b>Bring Your Group — Earn Rewards</b><div class="row" style="margin-top:8px" id="refStats"><span class="muted">Loading…</span></div><p class="muted">Move Your Ajo To AJOCREDIT, Get Bonuses. <span id="refCode">Your code shows after you create or join a group.</span></p><button class="btn sec" onclick="invite(currentGroup.code)">Copy invite</button></div>
+<div class="card" id="accAuthCard" style="display:none"><b>🔐 Your account</b><p class="muted" id="accAuthMsg">Sign in to use AJOCREDIT on this device.</p><a class="btn sec" href="login.html" style="text-align:center;text-decoration:none;line-height:46px">Sign in</a><a class="btn sec" href="signup.html" style="text-align:center;text-decoration:none;line-height:46px;margin-top:8px">Create an account</a><button class="btn sec" id="accSignout" onclick="ajoSignout()" style="display:none">Sign out</button></div>
 <div class="card"><b>Help & disputes</b><div class="row"><span class="muted">Track cases under Disputes</span><button class="btn sec" onclick="go('disputes')">Open Disputes center</button></div><button class="btn sec" onclick="waChat('Hello AJOCREDIT, I need help')">💬 Chat on WhatsApp (Mon–Sat 8am–8pm)</button><p class="note" style="text-align:center"><a href="terms" style="color:var(--gold)">Terms</a> · <a href="privacy" style="color:var(--gold)">Privacy</a></p></div></details>
 <div class="note" style="text-align:center;margin:14px 0 2px">Ajocredit is a product of Zenonmag Concepts Ventures.<br>Contact: Plot 79, Apo Resettlement Zone A, Abuja, ajocredit.app@gmail.com, +234 907 3892 436</div>
 <div class="photorow"><img src="photos/pro-office-man.jfif" alt="Professional"><img src="photos/pro-phone-woman.jfif" alt="Professional"><img src="photos/pro-phone-man.jfif" alt="Professional"></div>
@@ -624,9 +625,30 @@ function checkAppUpdate(){
     });
   }).catch(function(){});
 }
+/* ---- Account: sign in / sign out / verification guard (Task 3) -------------
+   An unverified member must not reach the dashboard - they are sent to the code
+   page instead. Sign out clears the session and goes to the login page. */
+function ajoSignout(){
+  var t='';try{t=localStorage.getItem('ajo_token')||''}catch(e){}
+  try{localStorage.removeItem('ajo_token');localStorage.removeItem('ajo_user');localStorage.removeItem('ajo_login_skipped')}catch(e){}
+  try{api('/api/auth/logout',{method:'POST',headers:{'Authorization':'Bearer '+t}}).catch(function(){})}catch(e){}
+  setTimeout(function(){location.href='login.html'},50);
+}
+function ajoGuardDashboard(){
+  var t='';try{t=localStorage.getItem('ajo_token')||''}catch(e){}
+  var card=document.getElementById('accAuthCard');if(card)card.style.display='block';
+  if(!t)return;
+  api('/api/auth/me',{headers:{'Authorization':'Bearer '+t}}).then(function(j){
+    if(!j||!j.user)return;
+    if(j.user.verified===false){location.replace('verify.html?phone='+encodeURIComponent(j.user.phone||'')+'&purpose=login');return}
+    var m=document.getElementById('accAuthMsg');if(m)m.textContent='Signed in as '+(j.user.name||j.user.phone)+'.';
+    var so=document.getElementById('accSignout');if(so)so.style.display='block';
+  }).catch(function(){});
+}
 try{if('serviceWorker' in navigator&&location.protocol!=='file:'){navigator.serviceWorker.register('sw.js').catch(function(){})}}catch(e){}
 try{authBoot()}catch(e){}
 try{checkAppUpdate()}catch(e){}
+try{ajoGuardDashboard()}catch(e){}
 </script>
 </div>
 </body>
