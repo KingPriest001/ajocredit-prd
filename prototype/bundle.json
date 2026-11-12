@@ -1,10 +1,10 @@
 {
- "version": "d5ca133",
- "url": "https://kingpriest001.github.io/ajocredit-prd/bundles/d5ca133.zip",
- "sha256": "42bc2e6ce43ca7b57e60e91e9628f761af9da339a9e0984d88d16e6e3ba80083",
+ "version": "10cdd5f",
+ "url": "https://kingpriest001.github.io/ajocredit-prd/bundles/10cdd5f.zip",
+ "sha256": "c2624dd6ee7e66d599de2b6b65a28fb9cbac89fb896b0017d3cbe121fbecd05b",
  "rollback": {
-  "version": "94d86aa",
-  "url": "https://kingpriest001.github.io/ajocredit-prd/bundles/94d86aa.zip",
-  "sha256": "23788b2483c538f13b6f24ed953bd18af8567ed524415b8dc190613c51b613e5"
+  "version": "d5ca133",
+  "url": "https://kingpriest001.github.io/ajocredit-prd/bundles/d5ca133.zip",
+  "sha256": "42bc2e6ce43ca7b57e60e91e9628f761af9da339a9e0984d88d16e6e3ba80083"
  }
 }
