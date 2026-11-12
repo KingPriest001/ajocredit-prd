@@ -4,9 +4,17 @@ on:
     branches: [main]
     paths:
       - "prototype/**"
+  # The apk workflow publishes the rebuilt APK and the version manifest as a
+  # "[skip ci]" commit, and GitHub skips all workflow runs for those - so the mirror
+  # would keep serving an older version.json. Re-deploy after the apk workflow.
+  workflow_run:
+    workflows: ["apk"]
+    types: [completed]
   workflow_dispatch:
 jobs:
   deploy:
+    # Only re-deploy after a successful apk run.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

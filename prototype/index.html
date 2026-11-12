@@ -17,6 +17,7 @@
 .appbar b{font-size:15px}
 .live{background:var(--gold);color:#111;padding:7px 16px;font-size:11px;font-weight:700}
 .off{display:none;background:var(--warn);color:#111;padding:8px 16px;font-size:13px}.off.on{display:block}
+.upd{display:none;background:var(--gold);color:#111;padding:8px 16px;font-size:13px}.upd.on{display:block}
 .screen{display:none;padding:12px 16px;flex:1}.screen.on{display:block}
 .greet{color:var(--mut);font-size:13px}
 h2.name{margin:2px 0 12px;font-size:24px}
@@ -85,6 +86,7 @@ summary{font-weight:800;cursor:pointer}
 <div class="phone">
 <div class="live">Turn your Ajo into bank credit — save with your people, build a real financial identity.</div>
 <div class="off" id="off">You dey offline — 2 actions go send later.</div>
+<div class="upd" id="upd"></div>
 
 <!-- HOME -->
 <div class="screen on" id="s-home">
@@ -577,8 +579,42 @@ try{api('/api/score/AJ-774821').then(function(d){if(!d||!d.user)return;var t=doc
    handler. Anything started from an onload attribute therefore never ran: the
    service worker was never registered and the sign-in gate never appeared. Start
    both from here instead, at the end of our own script. */
+/* ---- Version nudge -------------------------------------------------------
+   The app knows which version is bundled inside it (the build writes it into
+   prototype/version.js and the APK also reports it natively). The live site
+   publishes the newest build's version as version.json. When they differ, the
+   member is offered the update: an installed app needs the new APK, a browser
+   just reloads. */
+var AJO_VERSION_URL='https://kingpriest001.github.io/ajocredit-prd/version.json';
+function ajoBundledVersion(){try{return String((window.AJO_BUILD&&window.AJO_BUILD.version)||'')}catch(e){return ''}}
+function ajoOwnVersion(cb){
+  try{
+    if(window.Capacitor&&typeof window.Capacitor.getInfo==='function'){
+      window.Capacitor.getInfo().then(function(i){cb(String((i&&i.version)||'')||ajoBundledVersion())}).catch(function(){cb(ajoBundledVersion())});
+      return;
+    }
+  }catch(e){}
+  cb(ajoBundledVersion());
+}
+function checkAppUpdate(){
+  var b=document.getElementById('upd');if(!b)return;
+  fetch(AJO_VERSION_URL+'?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.json()}).then(function(v){
+    if(!v||!v.version)return;
+    ajoOwnVersion(function(mine){
+      if(!mine||mine===v.version)return;
+      var native=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+      if(native){
+        b.innerHTML='A new version ('+v.version+') is available &mdash; <a href="'+(v.download||v.release||'#')+'" style="color:#111;text-decoration:underline">tap to update</a>';
+      }else{
+        b.innerHTML='A new version ('+v.version+') is available &mdash; <a href="#" onclick="location.reload();return false" style="color:#111;text-decoration:underline">tap to update</a>';
+      }
+      b.classList.add('on');
+    });
+  }).catch(function(){});
+}
 try{if('serviceWorker' in navigator&&location.protocol!=='file:'){navigator.serviceWorker.register('sw.js').catch(function(){})}}catch(e){}
 try{authBoot()}catch(e){}
+try{checkAppUpdate()}catch(e){}
 </script>
 </div>
 </body>

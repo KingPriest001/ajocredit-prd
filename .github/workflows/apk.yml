@@ -32,6 +32,32 @@ jobs:
       - run: npx cap add android
       - run: mkdir -p resources && cp prototype/icon-1024.png resources/icon.png && cp prototype/icon-1024.png resources/splash.png
       - run: npx capacitor-assets generate --android
+      # Write this build's version into the web bundle (bundled into the APK) and
+      # publish the same manifest so a running install can compare itself with the
+      # newest build and offer an update.
+      - name: Write version manifest
+        env:
+          APP_VERSION: ${{ inputs.version }}
+        run: |
+          python3 - <<'PY'
+          import datetime, json, os, pathlib, subprocess
+          sha = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode().strip()
+          version = os.environ.get('APP_VERSION', '').strip() or sha
+          # Commit timestamp: monotonic with commit order, identical for every job in
+          # this run, and needs no git history (the checkout is shallow).
+          code = str(int(subprocess.check_output(['git', 'show', '-s', '--format=%ct', 'HEAD']).decode().strip()))
+          manifest = {
+              'version': version,
+              'code': code,
+              'built': datetime.datetime.utcnow().isoformat() + 'Z',
+              'release': 'https://github.com/KingPriest001/ajocredit-prd/releases/latest',
+              'download': 'https://github.com/KingPriest001/ajocredit-prd/releases/latest/download/ajocredit-latest-release.apk',
+              'debugDownload': 'https://kingpriest001.github.io/ajocredit-prd/ajocredit.apk',
+          }
+          pathlib.Path('prototype/version.json').write_text(json.dumps(manifest, indent=1) + '\n')
+          pathlib.Path('prototype/version.js').write_text('window.AJO_BUILD=%s;\n' % json.dumps(manifest))
+          print('version manifest: ' + json.dumps(manifest))
+          PY
       - run: rm -f prototype/ajocredit.apk
       - run: npx cap sync
       # Android only accepts an update whose versionCode is HIGHER than the installed
@@ -70,7 +96,7 @@ jobs:
       - run: |
           git config user.name "ajocredit-ci"
           git config user.email "ci@ajocredit.ng"
-          git add prototype/ajocredit.apk
+          git add prototype/ajocredit.apk prototype/version.json prototype/version.js
           git diff --staged --quiet || (git commit -m "[skip ci] Refresh published APK" && git push)
 
   # ---- Play Store–ready release signing (does NOT publish; artifacts only) ----
@@ -98,6 +124,29 @@ jobs:
       - run: npx cap add android
       - run: mkdir -p resources && cp prototype/icon-1024.png resources/icon.png && cp prototype/icon-1024.png resources/splash.png
       - run: npx capacitor-assets generate --android
+      # Same version manifest as the debug job - identical values (the commit
+      # timestamp), so the release APK and the published web build agree.
+      - name: Write version manifest
+        env:
+          APP_VERSION: ${{ inputs.version }}
+        run: |
+          python3 - <<'PY'
+          import datetime, json, os, pathlib, subprocess
+          sha = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode().strip()
+          version = os.environ.get('APP_VERSION', '').strip() or sha
+          code = str(int(subprocess.check_output(['git', 'show', '-s', '--format=%ct', 'HEAD']).decode().strip()))
+          manifest = {
+              'version': version,
+              'code': code,
+              'built': datetime.datetime.utcnow().isoformat() + 'Z',
+              'release': 'https://github.com/KingPriest001/ajocredit-prd/releases/latest',
+              'download': 'https://github.com/KingPriest001/ajocredit-prd/releases/latest/download/ajocredit-latest-release.apk',
+              'debugDownload': 'https://kingpriest001.github.io/ajocredit-prd/ajocredit.apk',
+          }
+          pathlib.Path('prototype/version.json').write_text(json.dumps(manifest, indent=1) + '\n')
+          pathlib.Path('prototype/version.js').write_text('window.AJO_BUILD=%s;\n' % json.dumps(manifest))
+          print('version manifest: ' + json.dumps(manifest))
+          PY
       - run: npx cap sync
       # Same versionCode rule as the debug job - see the comment there. Without this
       # every release APK is versionCode 1 and no member could ever update in place.
