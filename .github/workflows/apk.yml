@@ -6,6 +6,11 @@ on:
       - "prototype/**"
       - ".github/workflows/apk.yml"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version name shown in the app (e.g. 1.0.3). Optional - defaults to the commit SHA."
+        required: false
+        type: string
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -29,6 +34,27 @@ jobs:
       - run: npx capacitor-assets generate --android
       - run: rm -f prototype/ajocredit.apk
       - run: npx cap sync
+      # Android only accepts an update whose versionCode is HIGHER than the installed
+      # one. `npx cap init` generates versionCode 1, so without this every build has the
+      # same code: a new APK is rejected and the member has to uninstall first (losing
+      # their local session). The commit count always increases, so each build upgrades
+      # cleanly over the last one.
+      - name: Set versionCode / versionName
+        env:
+          APP_VERSION: ${{ inputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os, re, pathlib, subprocess
+          p = pathlib.Path('android/app/build.gradle')
+          s = p.read_text()
+          count = int(subprocess.check_output(['git', 'rev-list', '--count', 'HEAD']).decode().strip())
+          sha = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode().strip()
+          version = os.environ.get('APP_VERSION', '').strip() or sha
+          s = re.sub(r'versionCode\s+\d+', 'versionCode %d' % count, s, count=1)
+          s = re.sub(r'versionName\s+"[^"]*"', 'versionName "%s"' % version, s, count=1)
+          p.write_text(s)
+          print('versionCode=%s versionName=%s' % (count, version))
+          PY
       - run: cd android && chmod +x gradlew && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
         with:
@@ -67,6 +93,24 @@ jobs:
       - run: mkdir -p resources && cp prototype/icon-1024.png resources/icon.png && cp prototype/icon-1024.png resources/splash.png
       - run: npx capacitor-assets generate --android
       - run: npx cap sync
+      # Same versionCode rule as the debug job - see the comment there. Without this
+      # every release APK is versionCode 1 and no member could ever update in place.
+      - name: Set versionCode / versionName
+        env:
+          APP_VERSION: ${{ inputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os, re, pathlib, subprocess
+          p = pathlib.Path('android/app/build.gradle')
+          s = p.read_text()
+          count = int(subprocess.check_output(['git', 'rev-list', '--count', 'HEAD']).decode().strip())
+          sha = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode().strip()
+          version = os.environ.get('APP_VERSION', '').strip() or sha
+          s = re.sub(r'versionCode\s+\d+', 'versionCode %d' % count, s, count=1)
+          s = re.sub(r'versionName\s+"[^"]*"', 'versionName "%s"' % version, s, count=1)
+          p.write_text(s)
+          print('versionCode=%s versionName=%s' % (count, version))
+          PY
       # Materialize the keystore from the base64 secret.
       - name: Write keystore
         env:
