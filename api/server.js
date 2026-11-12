@@ -412,8 +412,10 @@ async function main() {
     }
     // Local check against the stored hash - the code itself is never stored.
     const local = otpSafeEqual(rec.code_hash, otpHash(rec.salt, pin));
-    // Authoritative check: the Termii Verify API.
-    const v = rec.pin_id ? await termii.verifyOtp(rec.pin_id, pin) : { ok: local, detail: 'no pin id' };
+    // Authoritative check: the Termii Verify API. It is only called once our own
+    // hash matches, so a wrong guess never burns the provider's attempt budget.
+    let v = { ok: false, detail: 'local hash mismatch' };
+    if (local) v = rec.pin_id ? await termii.verifyOtp(rec.pin_id, pin) : { ok: true, detail: 'no pin id' };
     if (!local || !v.ok) {
       await q('UPDATE otp_codes SET attempts=attempts+1 WHERE id=$1', [rec.id]);
       const left = Math.max(0, OTP_MAX_ATTEMPTS - (rec.attempts + 1));

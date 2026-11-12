@@ -87,13 +87,22 @@ async function verifyOtp(pinId, pin) {
   if (!configured()) return { ok: false, detail: 'termii key not configured' };
   try {
     const r = await post('/api/sms/otp/verify', {
+      // The live Termii API wants the token reference as "pinId" (camelCase) even
+      // though the docs say "pin_id" - sending only pin_id comes back "Pin ID is
+      // required". We send both; Termii ignores the extra key.
       api_key: key,
+      pinId: String(pinId),
       pin_id: String(pinId),
       pin: String(pin),
     });
     const b = r.body || {};
+    // Termii answers { verified: true } on success and { error: true, message } on failure.
+    if (b.verified === true) return { ok: true, detail: 'verified' };
+    if (b.error === true || (typeof b.error === 'string' && b.error)) {
+      return { ok: false, detail: b.message || b.error || `http ${r.status}` };
+    }
     const blob = `${b.status || ''} ${b.message || ''} ${b.error || ''}`.toLowerCase();
-    const rejected = /invalid|incorrect|expired|wrong|not found|not_found|failed|error|unauthorized/.test(blob);
+    const rejected = /invalid|incorrect|expired|wrong|not found|not_found|failed|error|unauthorized|already been verified/.test(blob);
     return { ok: !!r.ok && !rejected, detail: b.message || b.status || b.error || `http ${r.status}` };
   } catch (e) {
     return { ok: false, detail: e.message };
