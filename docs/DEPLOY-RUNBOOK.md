@@ -50,22 +50,42 @@ manual checks).
 
 | Env var | Meaning |
 |---|---|
-| `APP_UPDATE_ROLLOUT` | 0–100. Percentage of devices that get the new bundle. Stable per device (hash bucket), so nobody flip-flops between launches. |
+| `APP_UPDATE_ROLLOUT` | 0–100. Percentage of devices that get the new bundle. Stable per device (hash bucket), so nobody flip-flops between launches. **Default 5.** |
 | `APP_UPDATE_ROLLBACK` | `1` = hand **every** device the last known good bundle (`bundle.json → rollback`) instead of the new one. |
 | `APP_BUNDLE_MANIFEST` | Where the manifest lives (default: the static site above). |
 
-**Staged rollout:** start at `APP_UPDATE_ROLLOUT=5`, watch, then 25 → 50 → 100.
-Each device is in a fixed bucket, so it keeps getting the same answer.
+**What is live right now:**
+
+```
+GET https://ajocredit-api.onrender.com/api/app/update/status
+→ { rollout, rollback, serving, current, rollback_bundle }
+```
+
+`current` is the bundle being offered, `rollback_bundle` is what a rollback
+would send people back to, and `serving` says which of the two is live.
+
+**Staged rollout:** the code starts at **5 %**. Raise it on Render
+(`APP_UPDATE_ROLLOUT=25`, then `50`, then `100`) as you watch. Each device is in
+a fixed bucket, so it keeps getting the same answer.
 
 **Rollback:** set `APP_UPDATE_ROLLBACK=1` and save. Devices that already took the
 bad bundle get the previous good one on their next launch. The rollback bundle is
 the previous entry in `bundle.json` — always one build behind, so it is never lost.
+A rollback is never staged: it goes to every device.
+
+> **If there is no rollback bundle yet** (`rollback_bundle` is null), setting
+> `APP_UPDATE_ROLLBACK=1` moves nobody — it cannot roll back to something that
+> was never published. It never falls back to serving the *new* bundle.
 
 **After a bad web bundle, also re-cut a good APK** (the APK embeds the same assets).
 
 The plugin's usage stats and channel calls are pointed at our own API
 (`/api/app/stats`, `/api/app/channel`), so nothing about a member's phone is
 sent to Capgo's servers.
+
+**A second safety net:** the plugin rolls a bundle back on its own if the app
+does not report itself ready within `appReadyTimeout` (30 s). That is why
+`prototype/index.html` calls `notifyAppReady()` as soon as the app has loaded.
 
 ## Notifications (MVP)
 

@@ -18,12 +18,14 @@
 const crypto = require('crypto');
 
 // The manifest URL and the rollout switches live in the environment.
+// The rollout starts at 5% - a new web bundle goes out to a small slice of
+// devices first and is widened only after it has been seen to work.
 function manifestUrl(env) {
   return (env && env.APP_BUNDLE_MANIFEST) || 'https://kingpriest001.github.io/ajocredit-prd/bundle.json';
 }
 function rolloutPct(env) {
-  const raw = parseInt(((env && env.APP_UPDATE_ROLLOUT) || '100'), 10);
-  if (!Number.isFinite(raw)) return 100;
+  const raw = parseInt(((env && env.APP_UPDATE_ROLLOUT) || '5'), 10);
+  if (!Number.isFinite(raw)) return 5;
   return Math.max(0, Math.min(100, raw));
 }
 function rollbackOn(env) {

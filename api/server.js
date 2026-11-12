@@ -548,6 +548,25 @@ async function main() {
   // member's phone leaves the country and no request fails.
   app.all('/api/app/stats', (req, res) => { try { res.json({}); } catch (e) { res.json({}); } });
   app.all('/api/app/channel', (req, res) => { try { res.json({}); } catch (e) { res.json({}); } });
+  // What is live right now: the bundle on offer, the bundle a rollback would
+  // serve, and how much of the fleet is being offered the new one. Read-only -
+  // it changes nothing.
+  app.get('/api/app/update/status', async (req, res) => {
+    try {
+      const m = await updater.fetchManifest(updater.manifestUrl(process.env), bundleCache);
+      const rb = (m && m.rollback) || null;
+      res.json({
+        rollout: updater.rolloutPct(process.env),
+        rollback: updater.rollbackOn(process.env),
+        serving: updater.rollbackOn(process.env) ? 'rollback' : 'current',
+        manifest: updater.manifestUrl(process.env),
+        current: m ? { version: m.version, url: m.url, sha256: m.sha256 || '' } : null,
+        rollback_bundle: rb && rb.url ? { version: rb.version, url: rb.url, sha256: rb.sha256 || '' } : null
+      });
+    } catch (e) {
+      res.json({ error: 'could not read the bundle manifest' });
+    }
+  });
 
   // ---- Account creation, login, password reset (Task 3) --------------------
   // Signup creates the account and sends the phone code. The member is NOT verified
