@@ -5,6 +5,7 @@
 //
 // Every credential comes from the environment; nothing is hardcoded here. The OTP
 // is never written to the console and never returned to the caller as a log line.
+const crypto = require('crypto');
 const DEFAULT_BASE = 'https://v4.api.termii.com';
 
 function cfg() {
@@ -55,6 +56,19 @@ async function sendSms(phone, text) {
   }
 }
 
+// Which OTP source to use.
+//   'termii' (default) — Termii generates the code and its Verify API validates it.
+//                        Needs the OTP/Verify product active on the Termii account.
+//   'local'            — we generate the 6-digit code ourselves and validate it
+//                        against the salted hash we store in the database. Used when
+//                        the Termii OTP product is unavailable ("Country Inactive").
+//                        Delivery still goes over Termii SMS, so an approved sender
+//                        ID is required either way.
+function otpMode() {
+  const m = String(process.env.TERMII_OTP_MODE || 'termii').toLowerCase();
+  return m === 'local' ? 'local' : 'termii';
+}
+
 // Termii In-App Token. Termii generates the numeric code and keeps it; we get the
 // pin_id so we can later validate the code through the Verify API. The plaintext
 // code is returned to the caller only so it can be put into the message - it must
@@ -62,6 +76,12 @@ async function sendSms(phone, text) {
 async function generateOtp(phoneDigits, opts) {
   const o = opts || {};
   const { key } = cfg();
+  if (otpMode() === 'local') {
+    // Local mode: a cryptographically random 6-digit code. It is hashed before it
+    // is stored, so the plain code only ever exists in this request's memory.
+    const otp = String(crypto.randomInt(100000, 1000000));
+    return { ok: true, otp, pinId: null, detail: 'local' };
+  }
   if (!configured()) return { ok: false, detail: 'termii key not configured' };
   try {
     const r = await post('/api/sms/otp/generate', {
@@ -84,6 +104,7 @@ async function generateOtp(phoneDigits, opts) {
 // Termii Verify API - the authoritative check on a code the member received.
 async function verifyOtp(pinId, pin) {
   const { key } = cfg();
+  if (otpMode() === 'local') return { ok: true, detail: 'local mode' };
   if (!configured()) return { ok: false, detail: 'termii key not configured' };
   try {
     const r = await post('/api/sms/otp/verify', {
@@ -109,4 +130,4 @@ async function verifyOtp(pinId, pin) {
   }
 }
 
-module.exports = { sendSms, generateOtp, verifyOtp, configured, senderId: () => cfg().from };
+module.exports = { sendSms, generateOtp, verifyOtp, configured, otpMode, senderId: () => cfg().from };
