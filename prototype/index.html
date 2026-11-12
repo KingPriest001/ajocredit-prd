@@ -586,15 +586,27 @@ try{api('/api/score/AJ-774821').then(function(d){if(!d||!d.user)return;var t=doc
    member is offered the update: an installed app needs the new APK, a browser
    just reloads. */
 var AJO_VERSION_URL='https://kingpriest001.github.io/ajocredit-prd/version.json';
-function ajoBundledVersion(){try{return String((window.AJO_BUILD&&window.AJO_BUILD.version)||'')}catch(e){return ''}}
+// The version bundled with THIS build. In an installed app the file is on the
+// device, so it is always exact; on the web it is fetched fresh (cache-busted) so
+// a stale cached page is correctly detected as out of date.
+function ajoFetchBundled(cb){
+  try{
+    fetch('version.js?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.text()}).then(function(t){
+      var m=t.match(/window\.AJO_BUILD=(\{[\s\S]*?\});/);
+      var o={};if(m){try{o=JSON.parse(m[1])}catch(e){}}
+      cb(String(o.version||''));
+    }).catch(function(){cb('')});
+  }catch(e){cb('')}
+}
 function ajoOwnVersion(cb){
+  // Prefer the native build info - exact for an installed app.
   try{
     if(window.Capacitor&&typeof window.Capacitor.getInfo==='function'){
-      window.Capacitor.getInfo().then(function(i){cb(String((i&&i.version)||'')||ajoBundledVersion())}).catch(function(){cb(ajoBundledVersion())});
+      window.Capacitor.getInfo().then(function(i){cb(String((i&&i.version)||''))}).catch(function(){ajoFetchBundled(cb)});
       return;
     }
   }catch(e){}
-  cb(ajoBundledVersion());
+  ajoFetchBundled(cb);
 }
 function checkAppUpdate(){
   var b=document.getElementById('upd');if(!b)return;
