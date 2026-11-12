@@ -5,7 +5,7 @@ The legal/compliance gate lives separately in `LAUNCH-CHECKLIST.md` and is uncha
 
 - **Release:** `v1.0.1` (GitHub Release, signed with the permanent `ajocredit` keystore)
 - **Render service:** `srv-db44g5e0tbcc73d3d7tg`
-- **App:** <https://kingpriest001.github.io/ajocredit-prd/> · APK: `/ajocredit.apk`
+- **App:** <https://kingpriest001.github.io/ajocredit-prd/> · APK: `/releases/ajocredit.apk` (also at `/ajocredit.apk`)
 - **API:** <https://ajocredit-api.onrender.com>
 
 ## Current live state (verified)

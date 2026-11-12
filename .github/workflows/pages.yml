@@ -35,8 +35,17 @@ jobs:
           # just published is included. On a normal push use that push's own commit.
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.sha }}
       - uses: actions/configure-pages@v5
+      # Stage the site: the web app from prototype/ at the root, and the published
+      # APK under /releases/ (APKs live in their own folder, not mixed into the web
+      # assets). /ajocredit.apk is kept as a copy so the older shared link still works.
+      - run: |
+          rm -rf _site && mkdir -p _site
+          cp -r prototype/* _site/
+          mkdir -p _site/releases
+          cp releases/* _site/releases/ 2>/dev/null || true
+          cp releases/ajocredit.apk _site/ajocredit.apk 2>/dev/null || true
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: prototype
+          path: _site
       - id: deployment
         uses: actions/deploy-pages@v4

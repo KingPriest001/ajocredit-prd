@@ -20,8 +20,12 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Stage site (exclude APK + local config)
-        run: mkdir -p cfdeploy && cp -r prototype/* cfdeploy/ && rm -f cfdeploy/ajocredit.apk cfdeploy/config.local.js
+      - name: Stage site (APK under /releases/, local config excluded)
+        run: |
+          rm -rf cfdeploy && mkdir -p cfdeploy
+          cp -r prototype/* cfdeploy/ && rm -f cfdeploy/ajocredit.apk cfdeploy/config.local.js
+          mkdir -p cfdeploy/releases
+          cp releases/* cfdeploy/releases/ 2>/dev/null || true
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:

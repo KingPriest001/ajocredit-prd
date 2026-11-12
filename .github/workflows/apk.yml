@@ -52,13 +52,13 @@ jobs:
               'built': datetime.datetime.utcnow().isoformat() + 'Z',
               'release': 'https://github.com/KingPriest001/ajocredit-prd/releases/latest',
               'download': 'https://github.com/KingPriest001/ajocredit-prd/releases/latest/download/ajocredit-latest-release.apk',
-              'debugDownload': 'https://kingpriest001.github.io/ajocredit-prd/ajocredit.apk',
+              'debugDownload': 'https://kingpriest001.github.io/ajocredit-prd/releases/ajocredit.apk',
           }
           pathlib.Path('prototype/version.json').write_text(json.dumps(manifest, indent=1) + '\n')
           pathlib.Path('prototype/version.js').write_text('window.AJO_BUILD=%s;\n' % json.dumps(manifest))
           print('version manifest: ' + json.dumps(manifest))
           PY
-      - run: rm -f prototype/ajocredit.apk
+      - run: rm -f releases/ajocredit.apk && mkdir -p releases
       - run: npx cap sync
       # Android only accepts an update whose versionCode is HIGHER than the installed
       # one. `npx cap init` generates versionCode 1, so without this every build has the
@@ -92,11 +92,11 @@ jobs:
         with:
           name: ajocredit-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
-      - run: cp android/app/build/outputs/apk/debug/app-debug.apk prototype/ajocredit.apk
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk releases/ajocredit.apk
       - run: |
           git config user.name "ajocredit-ci"
           git config user.email "ci@ajocredit.ng"
-          git add prototype/ajocredit.apk prototype/version.json prototype/version.js
+          git add releases/ajocredit.apk prototype/version.json prototype/version.js
           git diff --staged --quiet || (git commit -m "[skip ci] Refresh published APK" && git push)
 
   # ---- Play Store–ready release signing (does NOT publish; artifacts only) ----
@@ -141,7 +141,7 @@ jobs:
               'built': datetime.datetime.utcnow().isoformat() + 'Z',
               'release': 'https://github.com/KingPriest001/ajocredit-prd/releases/latest',
               'download': 'https://github.com/KingPriest001/ajocredit-prd/releases/latest/download/ajocredit-latest-release.apk',
-              'debugDownload': 'https://kingpriest001.github.io/ajocredit-prd/ajocredit.apk',
+              'debugDownload': 'https://kingpriest001.github.io/ajocredit-prd/releases/ajocredit.apk',
           }
           pathlib.Path('prototype/version.json').write_text(json.dumps(manifest, indent=1) + '\n')
           pathlib.Path('prototype/version.js').write_text('window.AJO_BUILD=%s;\n' % json.dumps(manifest))

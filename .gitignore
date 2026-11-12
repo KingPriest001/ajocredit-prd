@@ -5,6 +5,7 @@ dist/
 prototype/config.local.js
 api/.pglite-data/
 backups/
+logs/
 *.log
 .DS_Store
 .neon
