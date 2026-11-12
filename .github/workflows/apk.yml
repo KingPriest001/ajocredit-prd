@@ -57,6 +57,9 @@ jobs:
           s = re.sub(r'versionName\s+"[^"]*"', 'versionName "%s"' % version, s, count=1)
           p.write_text(s)
           print('versionCode=%s versionName=%s' % (count, version))
+          for line in s.splitlines():
+              if 'versionCode' in line or 'versionName' in line:
+                  print('build.gradle now has: ' + line.strip())
           PY
       - run: cd android && chmod +x gradlew && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
@@ -116,6 +119,9 @@ jobs:
           s = re.sub(r'versionName\s+"[^"]*"', 'versionName "%s"' % version, s, count=1)
           p.write_text(s)
           print('versionCode=%s versionName=%s' % (count, version))
+          for line in s.splitlines():
+              if 'versionCode' in line or 'versionName' in line:
+                  print('build.gradle now has: ' + line.strip())
           PY
       # Materialize the keystore from the base64 secret.
       - name: Write keystore
