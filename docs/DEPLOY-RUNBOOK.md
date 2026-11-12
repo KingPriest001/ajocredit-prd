@@ -21,6 +21,31 @@ The legal/compliance gate lives separately in `LAUNCH-CHECKLIST.md` and is uncha
 | `REQUIRE_AUTH` | **off** — API is open (pilot) |
 | `REQUIRE_LOGIN` | **on** — sign-in/account-creation page is live |
 
+## Web-bundle updates (Capacitor Updater)
+
+Installed apps can pull a new **web bundle** (a zip of the web assets) without a
+new APK. CI publishes the bundle and a manifest to the static site:
+
+- `https://kingpriest001.github.io/ajocredit-prd/bundle.json` → `{ version, url, sha256, rollback }`
+- `https://kingpriest001.github.io/ajocredit-prd/bundles/<version>.zip`
+
+The API decides who gets it: `GET /api/app/update?device_id=…&current=…`
+
+| Env var | Meaning |
+|---|---|
+| `APP_UPDATE_ROLLOUT` | 0–100. Percentage of devices that get the new bundle. Stable per device (hash bucket), so nobody flip-flops between launches. |
+| `APP_UPDATE_ROLLBACK` | `1` = hand **every** device the last known good bundle (`bundle.json → rollback`) instead of the new one. |
+| `APP_BUNDLE_MANIFEST` | Where the manifest lives (default: the static site above). |
+
+**Staged rollout:** start at `APP_UPDATE_ROLLOUT=5`, watch, then 25 → 50 → 100.
+Each device is in a fixed bucket, so it keeps getting the same answer.
+
+**Rollback:** set `APP_UPDATE_ROLLBACK=1` and save. Devices that already took the
+bad bundle get the previous good one on their next launch. The rollback bundle is
+the previous entry in `bundle.json` — always one build behind, so it is never lost.
+
+**After a bad web bundle, also re-cut a good APK** (the APK embeds the same assets).
+
 ## Notifications (MVP)
 
 | Channel | What goes out |

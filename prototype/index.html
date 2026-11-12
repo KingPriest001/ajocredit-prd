@@ -343,7 +343,7 @@ function authBoot(){apiAuth('/api/auth/config',{},15000).then(function(r){var c=
 
 var API_BASES=['https://ajocredit-api.onrender.com','http://localhost:4000'];
 function ajoToken(){try{return localStorage.getItem('ajo_token')||''}catch(e){return''}}
-function api(path,opts,slowCb){var i=0;opts=opts||{};var tk=ajoToken();if(tk){opts.headers=Object.assign({},opts.headers||{},{'Authorization':'Bearer '+tk});}function attempt(){if(i>=API_BASES.length)return Promise.resolve(null);var url=API_BASES[i++];try{var ac=new AbortController();var to=setTimeout(function(){ac.abort()},45000);var slow=setTimeout(function(){if(slowCb)slowCb(url)},6000);return fetch(url+path,Object.assign({},opts,{signal:ac.signal})).then(function(r){clearTimeout(to);clearTimeout(slow);if(r.status===401){try{localStorage.removeItem('ajo_token')}catch(e){}window._ajoAuth=1;window._ajoLogin=1;maybeAuthGate();}if(!r.ok)throw 0;return r.json()}).catch(function(){clearTimeout(slow);return attempt()})}catch(e){return attempt()}}return attempt()}
+function api(path,opts,slowCb){var i=0;opts=opts||{};var tk=ajoToken();if(tk){opts.headers=Object.assign({},opts.headers||{},{'Authorization':'Bearer '+tk});}function attempt(){if(i>=API_BASES.length)return Promise.resolve(null);var url=API_BASES[i++];try{var ac=new AbortController();var to=setTimeout(function(){ac.abort()},45000);var slow=setTimeout(function(){if(slowCb)slowCb(url)},6000);return fetch(url+path,Object.assign({},opts,{signal:ac.signal})).then(function(r){clearTimeout(to);clearTimeout(slow);if(r.status===401){try{localStorage.removeItem('ajo_token');localStorage.removeItem('ajo_login_skipped')}catch(e){}window._ajoAuth=1;window._ajoLogin=1;maybeAuthGate();}if(!r.ok)throw 0;return r.json()}).catch(function(){clearTimeout(slow);return attempt()})}catch(e){return attempt()}}return attempt()}
 function panel(id){var p=document.getElementById(id);var open=p.style.display!=='none';['mPanel','oPanel','hPanel','sPanel','rPanel','pPanel'].forEach(function(x){var el=document.getElementById(x);if(el)el.style.display='none'});p.style.display=open?'none':'block'}
 var currentGroup={id:'g-aj4821',code:'AJ-4821',name:'Aunty Bola Market Women'};
 try{var _cg=localStorage.getItem('ajo_current');if(_cg)currentGroup=JSON.parse(_cg)}catch(e){}
@@ -649,6 +649,8 @@ try{if('serviceWorker' in navigator&&location.protocol!=='file:'){navigator.serv
 try{authBoot()}catch(e){}
 try{checkAppUpdate()}catch(e){}
 try{ajoGuardDashboard()}catch(e){}
+/* Tell the Capacitor Updater this bundle works, so it is not rolled back. */
+try{if(window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.CapacitorUpdater){window.Capacitor.Plugins.CapacitorUpdater.notifyAppReady().catch(function(){})}}catch(e){}
 </script>
 </div>
 </body>

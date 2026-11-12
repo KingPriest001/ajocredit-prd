@@ -27,7 +27,7 @@ jobs:
           java-version: 17
       # No setup-android: ubuntu-latest runners ship the Android SDK preinstalled (ANDROID_HOME).
       - run: npm init -y
-      - run: npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/assets
+      - run: npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/assets @capgo/capacitor-updater
       - run: npx cap init "AJOCREDIT" com.ajocredit.app --web-dir=prototype
       - run: npx cap add android
       - run: mkdir -p resources && cp prototype/icon-1024.png resources/icon.png && cp prototype/icon-1024.png resources/splash.png
@@ -57,6 +57,27 @@ jobs:
           pathlib.Path('prototype/version.json').write_text(json.dumps(manifest, indent=1) + '\n')
           pathlib.Path('prototype/version.js').write_text('window.AJO_BUILD=%s;\n' % json.dumps(manifest))
           print('version manifest: ' + json.dumps(manifest))
+          PY
+      # Tell the app where to look for web-bundle updates. The API decides who gets
+      # the update (staged rollout) and can force a rollback to the last good bundle.
+      - name: Configure the Capacitor Updater
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          p = pathlib.Path('capacitor.config.json')
+          cfg = json.loads(p.read_text())
+          cfg['plugins'] = cfg.get('plugins', {})
+          cfg['plugins']['CapacitorUpdater'] = {
+            'updateUrl': 'https://ajocredit-api.onrender.com/api/app/update',
+            'autoUpdate': True,
+            'directUpdate': True,
+            'periodCheckDelay': 60,
+            'autoDeleteFailed': True,
+            'autoDeletePrevious': True,
+            'responseTimeout': 20,
+          }
+          p.write_text(json.dumps(cfg, indent=2) + '\n')
+          print('capacitor updater configured')
           PY
       - run: rm -f releases/ajocredit.apk && mkdir -p releases
       - run: npx cap sync
@@ -93,10 +114,47 @@ jobs:
           name: ajocredit-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
       - run: cp android/app/build/outputs/apk/debug/app-debug.apk releases/ajocredit.apk
+      # Publish the web bundle (a zip of the web assets) plus its manifest, so an
+      # installed app can pull a new build WITHOUT a new APK. The manifest keeps the
+      # previous bundle, so a rollback is one env var away on the API.
+      - name: Publish web bundle
+        env:
+          APP_VERSION: ${{ inputs.version }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess, zipfile
+          root = pathlib.Path('prototype')
+          version = os.environ.get('APP_VERSION', '').strip() or subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode().strip()
+          bundles = root / 'bundles'
+          bundles.mkdir(exist_ok=True)
+          zpath = bundles / (version + '.zip')
+          with zipfile.ZipFile(zpath, 'w', zipfile.ZIP_DEFLATED) as z:
+              for f in sorted(root.rglob('*')):
+                  if f.is_dir():
+                      continue
+                  rel = f.relative_to(root).as_posix()
+                  if rel.split('/')[0] == 'bundles' or f.name == 'ajocredit.apk':
+                      continue
+                  z.write(f, rel)
+          sha = hashlib.sha256(zpath.read_bytes()).hexdigest()
+          base = 'https://kingpriest001.github.io/ajocredit-prd/bundles/'
+          mp = root / 'bundle.json'
+          prev = {}
+          if mp.exists():
+              try:
+                  prev = json.loads(mp.read_text())
+              except Exception:
+                  prev = {}
+          out = {'version': version, 'url': base + version + '.zip', 'sha256': sha}
+          if prev.get('version') and prev.get('url'):
+              out['rollback'] = {'version': prev['version'], 'url': prev['url'], 'sha256': prev.get('sha256', '')}
+          mp.write_text(json.dumps(out, indent=1) + '\n')
+          print('bundle published: %s %s sha256=%s' % (out['version'], out['url'], sha[:16]))
+          PY
       - run: |
           git config user.name "ajocredit-ci"
           git config user.email "ci@ajocredit.ng"
-          git add releases/ajocredit.apk prototype/version.json prototype/version.js
+          git add releases/ajocredit.apk prototype/version.json prototype/version.js prototype/bundle.json prototype/bundles
           git diff --staged --quiet || (git commit -m "[skip ci] Refresh published APK" && git push)
 
   # ---- Play Store–ready release signing (does NOT publish; artifacts only) ----
@@ -119,7 +177,7 @@ jobs:
           distribution: temurin
           java-version: 17
       - run: npm init -y
-      - run: npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/assets
+      - run: npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/assets @capgo/capacitor-updater
       - run: npx cap init "AJOCREDIT" com.ajocredit.app --web-dir=prototype
       - run: npx cap add android
       - run: mkdir -p resources && cp prototype/icon-1024.png resources/icon.png && cp prototype/icon-1024.png resources/splash.png
@@ -146,6 +204,26 @@ jobs:
           pathlib.Path('prototype/version.json').write_text(json.dumps(manifest, indent=1) + '\n')
           pathlib.Path('prototype/version.js').write_text('window.AJO_BUILD=%s;\n' % json.dumps(manifest))
           print('version manifest: ' + json.dumps(manifest))
+          PY
+      # Same updater configuration as the debug job.
+      - name: Configure the Capacitor Updater
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          p = pathlib.Path('capacitor.config.json')
+          cfg = json.loads(p.read_text())
+          cfg['plugins'] = cfg.get('plugins', {})
+          cfg['plugins']['CapacitorUpdater'] = {
+            'updateUrl': 'https://ajocredit-api.onrender.com/api/app/update',
+            'autoUpdate': True,
+            'directUpdate': True,
+            'periodCheckDelay': 60,
+            'autoDeleteFailed': True,
+            'autoDeletePrevious': True,
+            'responseTimeout': 20,
+          }
+          p.write_text(json.dumps(cfg, indent=2) + '\n')
+          print('capacitor updater configured')
           PY
       - run: npx cap sync
       # Same versionCode rule as the debug job - see the comment there. Without this

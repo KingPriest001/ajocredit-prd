@@ -516,6 +516,49 @@ async function main() {
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
+  // ---- Web bundle updates (Capacitor Updater) ------------------------------
+  // The bundle (a zip of the web assets) and its manifest are published to the
+  // static site by CI. The API decides WHO gets the update - a stable per-device
+  // bucket, so the same phone always gets the same answer - and can force every
+  // device back to the last known good bundle.
+  const BUNDLE_MANIFEST_URL = process.env.APP_BUNDLE_MANIFEST || 'https://kingpriest001.github.io/ajocredit-prd/bundle.json';
+  let bundleCache = { at: 0, data: null };
+  async function bundleManifest() {
+    if (bundleCache.data && Date.now() - bundleCache.at < 120000) return bundleCache.data;
+    try {
+      const r = await fetch(BUNDLE_MANIFEST_URL + '?t=' + Date.now(), { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+      const j = await r.json();
+      if (j && j.version && j.url) bundleCache = { at: Date.now(), data: j };
+      return j;
+    } catch (e) { return bundleCache.data; }
+  }
+  app.get('/api/app/update', async (req, res) => {
+    try {
+      const m = await bundleManifest();
+      if (!m || !m.version || !m.url) return res.json({});
+      const q = req.query || {};
+      const current = String(q.current || '');
+      const device = String(q.device_id || '');
+      // Rollback: hand every device the last known good bundle instead of the new one.
+      if (process.env.APP_UPDATE_ROLLBACK === '1' && m.rollback && m.rollback.url) {
+        if (current === m.rollback.version) return res.json({});
+        return res.json({ version: m.rollback.version, url: m.rollback.url, sessionKey: 'rollback-' + m.rollback.version });
+      }
+      // Already on this bundle.
+      if (current && current === m.version) return res.json({});
+      // Staged rollout: a stable bucket per device, so a phone does not flip between
+      // "has update" and "no update" on every launch.
+      const rollout = Math.max(0, Math.min(100, parseInt(process.env.APP_UPDATE_ROLLOUT || '100', 10) || 0));
+      if (rollout < 100) {
+        const bucket = crypto.createHash('sha256').update(device || 'anonymous').digest()[0] % 100;
+        if (bucket >= rollout) return res.json({});
+      }
+      res.json({ version: m.version, url: m.url, sessionKey: m.version });
+    } catch (e) {
+      res.json({});
+    }
+  });
+
   // ---- Account creation, login, password reset (Task 3) --------------------
   // Signup creates the account and sends the phone code. The member is NOT verified
   // yet, so they cannot reach the dashboard until the code is entered.
