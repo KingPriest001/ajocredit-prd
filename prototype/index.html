@@ -708,6 +708,7 @@ function ajoGuardDashboard(){
 }
 try{if('serviceWorker' in navigator&&location.protocol!=='file:'){navigator.serviceWorker.register('sw.js').catch(function(){})}}catch(e){}
 try{authBoot()}catch(e){}
+try{renderHomeLive()}catch(e){}
 try{checkAppUpdate()}catch(e){}
 try{ajoGuardDashboard()}catch(e){}
 /* Tell the Capacitor Updater this bundle works, so it is not rolled back. */
