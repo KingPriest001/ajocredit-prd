@@ -15,6 +15,18 @@
 .appbar{padding:14px 16px 4px;display:flex;justify-content:space-between;align-items:center}
 .appbar .back{width:34px;height:34px;border-radius:10px;background:var(--card);border:0;color:var(--txt);font-size:16px;cursor:pointer}
 .appbar b{font-size:15px}
+/* Sign out - red on purpose. It must never be mistaken for another action. */
+.logout{background:transparent;border:1.5px solid #7f1d1d;color:#F87171;border-radius:999px;padding:8px 13px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap}
+.logout:hover{background:rgba(248,113,113,.16);border-color:#F87171;color:#FCA5A5}
+.logout:active{background:rgba(248,113,113,.34);transform:translateY(1px)}
+.logout:focus-visible{outline:2px solid #F87171;outline-offset:2px}
+.logoutrow{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.logoutrow .lbl{color:#F87171;font-weight:800;font-size:13px}
+.logoutlink{color:#F87171;font-weight:800;text-decoration:underline;cursor:pointer;background:none;border:0;font:inherit;font-size:13px;padding:0}
+.logoutlink:hover{color:#FCA5A5}
+.logoutlink:active{opacity:.7}
+.whoami{font-size:12px;color:var(--mut);margin-top:2px}
+.whoami b{color:var(--txt);letter-spacing:.2px}
 .live{background:var(--gold);color:#111;padding:7px 16px;font-size:11px;font-weight:700}
 .off{display:none;background:var(--warn);color:#111;padding:8px 16px;font-size:13px}.off.on{display:block}
 .upd{display:none;background:var(--gold);color:#111;padding:8px 16px;font-size:13px}.upd.on{display:block}
@@ -90,10 +102,11 @@ summary{font-weight:800;cursor:pointer}
 
 <!-- HOME -->
 <div class="screen on" id="s-home">
-<div class="appbar" style="padding:4px 0 0"><button class="back" onclick="menuToggle()">☰</button><div style="flex:1"></div><button class="toggle" onclick="toggleLang()" id="langbtn">🇳🇬</button>&nbsp;<button class="toggle" onclick="go('notif')">🔔<span class="dot" id="notifDot" style="display:none"></span></button>&nbsp;<img class="avatar" src="photos/trader-hero.jfif" alt="AB"></div>
-<div class="card" id="menu" style="display:none"><div class="member"><span>🏠 Home</span><button class="toggle" onclick="go('home');document.getElementById('menu').classList.remove('on')">Open</button></div><div class="member"><span>👥 Groups</span><button class="toggle" onclick="go('groups');document.getElementById('menu').classList.remove('on')">Open</button></div><div class="member"><span>📈 Credit</span><button class="toggle" onclick="go('credit');document.getElementById('menu').classList.remove('on')">Open</button></div><div class="member"><span>⚖ Disputes</span><button class="toggle" onclick="go('disputes');document.getElementById('menu').classList.remove('on')">Open</button></div><div class="member" style="border:0"><span>💬 WhatsApp support</span><button class="toggle" onclick="waChat('Hello AJOCREDIT, I need help')">Chat</button></div></div>
+<div class="appbar" style="padding:4px 0 0"><button class="back" onclick="menuToggle()">☰</button><div style="flex:1"></div><button class="logout" id="hdrLogout" onclick="ajoSignout()" style="display:none;margin-right:8px">Sign out</button><button class="toggle" onclick="toggleLang()" id="langbtn">🇳🇬</button>&nbsp;<button class="toggle" onclick="go('notif')">🔔<span class="dot" id="notifDot" style="display:none"></span></button>&nbsp;<img class="avatar" src="photos/trader-hero.jfif" alt="AB"></div>
+<div class="card" id="menu" style="display:none"><div class="member"><span>🏠 Home</span><button class="toggle" onclick="go('home');document.getElementById('menu').classList.remove('on')">Open</button></div><div class="member"><span>👥 Groups</span><button class="toggle" onclick="go('groups');document.getElementById('menu').classList.remove('on')">Open</button></div><div class="member"><span>📈 Credit</span><button class="toggle" onclick="go('credit');document.getElementById('menu').classList.remove('on')">Open</button></div><div class="member"><span>⚖ Disputes</span><button class="toggle" onclick="go('disputes');document.getElementById('menu').classList.remove('on')">Open</button></div><div class="member"><span>💬 WhatsApp support</span><button class="toggle" onclick="waChat('Hello AJOCREDIT, I need help')">Chat</button></div><div class="member" id="menuLogoutRow" style="border:0;display:none"><span style="color:#F87171;font-weight:800">🚪 Sign out</span><button class="logout" onclick="ajoSignout()">Sign out</button></div></div>
 <div class="greet" id="greet">Good afternoon</div>
 <h2 class="name" id="homeName">Member</h2>
+<div class="whoami" id="homeWho" style="display:none"><span>Signed in as <b id="homePhone">—</b></span> <button class="logoutlink" onclick="ajoSignout()">Not you? Sign out</button></div>
 <div class="hero"><div class="muted" style="color:#d6e5da">💰 Credit score</div><div class="amt" id="heroAmt">—</div><div class="est" style="color:#e8f0e9" id="heroTier">Create or join a group to start at 250</div><div class="row" style="margin-top:8px"><span style="font-size:14px" id="heroNext">Next contribution: —</span></div><button class="goldbtn" onclick="go('pay')">Contribute Now</button></div>
 <div class="card" id="linkCta" style="display:none;border-color:var(--gold)"><b>🔗 Link your profile</b><div class="muted">Create a group or join with an invite code — your name, score and notifications activate.</div><div class="row"><button class="btn green" style="margin-top:8px" onclick="go('create');wiz(1)">Create group</button><button class="btn sec" style="margin-top:8px" onclick="go('groups')">Find & join</button></div></div>
 <div class="card"><div class="row"><span class="muted">Your next contribution</span><span class="muted" id="homeDue">—</span></div><div class="tiers4"><div id="tierB">🥉<br>Bronze<small>0–349</small></div><div id="tierS">🥈<br>Silver<small>350–599</small></div><div id="tierG">🥇<br>Gold<small>600–799</small></div><div id="tierP">💎<br>Platinum<small>800+</small></div></div><div class="muted" id="scoreLine">—</div></div>
@@ -229,14 +242,14 @@ summary{font-weight:800;cursor:pointer}
 
 <!-- ACCOUNT -->
 <div class="screen" id="s-account">
-<div class="card"><div class="row"><div><b id="accName">Member ✓</b><div class="muted" id="accMeta">Your profile appears here once linked.</div></div><img class="avatar" src="photos/trader-hero.jfif" alt="Profile"></div>
+<div class="card"><div class="row"><div><b id="accName">Member ✓</b><div class="muted" id="accMeta">Your profile appears here once linked.</div><div class="whoami" id="accWho" style="display:none">Signed in as <b id="accPhone">—</b> · <button class="logoutlink" onclick="ajoSignout()">Not you? Sign out</button></div></div><img class="avatar" src="photos/trader-hero.jfif" alt="Profile"></div>
 <div class="muted" id="accSince"></div></div>
 <div class="card" id="accSigninCard" style="display:none"><div class="row"><div><b>🔐 Sign in to AJOCREDIT</b><div class="muted">Create your account or sign in with your phone number.</div></div><button class="btn green" style="width:auto;margin:0;padding:14px 20px" onclick="authShowGate()">Sign in</button></div></div>
 <div class="card"><b>🏛 AJOCREDIT Passport</b><div class="passport"><div class="row"><img class="avatar" src="photos/trader-hero.jfif" alt="You"><div style="flex:1"><b id="ppName">Member</b><div style="font-size:12px;opacity:.9" id="ppSub">—</div></div><b id="ppScore">—</b></div><div style="font-size:12px;opacity:.9;margin-top:6px" id="ppTier">Score and tier appear here once linked.</div><div style="font-size:11px;opacity:.85;text-align:center">Verifiable sharing unlocks after licensing</div></div><div style="text-align:center"><p class="note">Your history is building safely underneath. Sharing with lenders arrives after licensing.</p></div></div>
 <select id="langsel" onchange="setLang(this.value)"><option value="pg">Pidgin</option><option value="en">English</option><option value="yo">Yoruba</option><option value="ha">Hausa</option><option value="ig">Igbo</option></select></div>
 <div class="card"><div class="row"><div><b>🧕 Mama Bola guide</b><div class="muted">Stuck? Take the 1-minute walkthrough.</div></div><button class="btn green" style="width:auto;margin:0;padding:14px 20px" onclick="coachStart()">Start</button></div></div>
 <details><summary><b>🎁 Rewards & help</b></summary><div class="card"><b>Bring Your Group — Earn Rewards</b><div class="row" style="margin-top:8px" id="refStats"><span class="muted">Loading…</span></div><p class="muted">Move Your Ajo To AJOCREDIT, Get Bonuses. <span id="refCode">Your code shows after you create or join a group.</span></p><button class="btn sec" onclick="invite(currentGroup.code)">Copy invite</button></div>
-<div class="card" id="accAuthCard" style="display:none"><b>🔐 Your account</b><p class="muted" id="accAuthMsg">Sign in to use AJOCREDIT on this device.</p><a class="btn sec" href="login.html" style="text-align:center;text-decoration:none;line-height:46px">Sign in</a><a class="btn sec" href="signup.html" style="text-align:center;text-decoration:none;line-height:46px;margin-top:8px">Create an account</a><button class="btn sec" id="accSignout" onclick="ajoSignout()" style="display:none">Sign out</button></div>
+<div class="card" id="accAuthCard" style="display:none"><b>🔐 Your account</b><p class="muted" id="accAuthMsg">Sign in to use AJOCREDIT on this device.</p><a class="btn sec" href="login.html" style="text-align:center;text-decoration:none;line-height:46px">Sign in</a><a class="btn sec" href="signup.html" style="text-align:center;text-decoration:none;line-height:46px;margin-top:8px">Create an account</a><button class="logout" id="accSignout" onclick="ajoSignout()" style="display:none;width:100%;margin-top:14px;padding:14px">Sign out</button></div>
 <div class="card"><b>Help & disputes</b><div class="row"><span class="muted">Track cases under Disputes</span><button class="btn sec" onclick="go('disputes')">Open Disputes center</button></div><button class="btn sec" onclick="waChat('Hello AJOCREDIT, I need help')">💬 Chat on WhatsApp (Mon–Sat 8am–8pm)</button><p class="note" style="text-align:center"><a href="terms" style="color:var(--gold)">Terms</a> · <a href="privacy" style="color:var(--gold)">Privacy</a></p></div></details>
 <div class="note" style="text-align:center;margin:14px 0 2px">Ajocredit is a product of Zenonmag Concepts Ventures.<br>Contact: Plot 79, Apo Resettlement Zone A, Abuja, ajocredit.app@gmail.com, +234 907 3892 436</div>
 <div class="photorow"><img src="photos/pro-office-man.jfif" alt="Professional"><img src="photos/pro-phone-woman.jfif" alt="Professional"><img src="photos/pro-phone-man.jfif" alt="Professional"></div>
@@ -331,7 +344,7 @@ function authSend(purpose){if(purpose)_authPurpose=purpose;var p=normPhone((docu
     else{m.innerHTML='<b style="color:#F87171">'+((j&&j.error)||'Could not send code — please try again shortly.')+'</b>'}})}
 function authVerify(){var c=((document.getElementById('authCode')||{}).value||'').replace(/\D/g,'');var m=document.getElementById('authMsg');if(c.length!==6){m.innerHTML='<b style="color:#F87171">Enter the 6-digit code.</b>';return}m.innerHTML='<span class="muted">Verifying…</span>';document.getElementById('authBtn').disabled=true;
   apiAuth('/api/otp/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:_authPhoneNorm,code:c,device_id:deviceId(),name:((document.getElementById('authName')||{}).value||'').trim(),purpose:_authPurpose})}).then(function(r){document.getElementById('authBtn').disabled=false;var j=r&&r.body;
-    if(r&&r.ok&&j&&j.ok&&j.token){try{localStorage.setItem('ajo_token',j.token);localStorage.setItem('ajo_phone',_authPhoneNorm);localStorage.removeItem('ajo_login_skipped');}catch(e){}saveId({id:j.user_id,ajid:j.ajocredit_id,phone:_authPhoneNorm,name:((document.getElementById('authName')||{}).value||'').trim()||(myId()||{}).name||'Member'});window._ajoAuth=1;maybeAuthGate();toast('Signed in ✓');location.reload();}
+    if(r&&r.ok&&j&&j.ok&&j.token){try{localStorage.setItem('ajo_token',j.token);localStorage.setItem('ajo_phone',_authPhoneNorm);localStorage.removeItem('ajo_login_skipped');}catch(e){}saveId({id:j.user_id,ajid:j.ajocredit_id,phone:_authPhoneNorm,name:((document.getElementById('authName')||{}).value||'').trim()||(myId()||{}).name||'Member'});window._ajoAuth=1;renderSessionUI();maybeAuthGate();toast('Signed in ✓');location.reload();}
     else{m.innerHTML='<b style="color:#F87171">'+((j&&j.error)||'Wrong or expired code — try again.')+(j&&j.attempts_left!==undefined?(' &middot; '+j.attempts_left+' attempt'+(j.attempts_left===1?'':'s')+' left'):'')+'</b>'}})}
 function deviceId(){var d='';try{d=localStorage.getItem('ajo_device')||''}catch(e){}if(!d){d='web-'+Math.random().toString(36).slice(2)+Date.now().toString(36);try{localStorage.setItem('ajo_device',d)}catch(e){}}return d}
 // The gate must appear promptly on first launch, so read the config from the live
@@ -342,11 +355,15 @@ function deviceId(){var d='';try{d=localStorage.getItem('ajo_device')||''}catch(
 function authBoot(){apiAuth('/api/auth/config',{},15000).then(function(r){var c=r&&r.body;
   if(c){window._ajoAuth=c.require_auth?1:0;window._ajoLogin=c.require_login===false?0:1;}
   else{window._ajoAuth=0;window._ajoLogin=1;}
+  renderSessionUI();
+  // The API is locked: without a session there is nothing to show, so the
+  // member goes to the login page rather than an empty dashboard.
+  if(window._ajoAuth===1&&!ajoToken()){ajoRequireLogin();return}
   maybeAuthGate()})}
 
 var API_BASES=['https://ajocredit-api.onrender.com','http://localhost:4000'];
 function ajoToken(){try{return localStorage.getItem('ajo_token')||''}catch(e){return''}}
-function api(path,opts,slowCb){var i=0;opts=opts||{};var tk=ajoToken();if(tk){opts.headers=Object.assign({},opts.headers||{},{'Authorization':'Bearer '+tk});}function attempt(){if(i>=API_BASES.length)return Promise.resolve(null);var url=API_BASES[i++];try{var ac=new AbortController();var to=setTimeout(function(){ac.abort()},45000);var slow=setTimeout(function(){if(slowCb)slowCb(url)},6000);return fetch(url+path,Object.assign({},opts,{signal:ac.signal})).then(function(r){clearTimeout(to);clearTimeout(slow);if(r.status===401){try{localStorage.removeItem('ajo_token');localStorage.removeItem('ajo_login_skipped')}catch(e){}window._ajoAuth=1;window._ajoLogin=1;maybeAuthGate();}if(!r.ok)throw 0;return r.json()}).catch(function(){clearTimeout(slow);return attempt()})}catch(e){return attempt()}}return attempt()}
+function api(path,opts,slowCb){var i=0;opts=opts||{};var tk=ajoToken();if(tk){opts.headers=Object.assign({},opts.headers||{},{'Authorization':'Bearer '+tk});}function attempt(){if(i>=API_BASES.length)return Promise.resolve(null);var url=API_BASES[i++];try{var ac=new AbortController();var to=setTimeout(function(){ac.abort()},45000);var slow=setTimeout(function(){if(slowCb)slowCb(url)},6000);return fetch(url+path,Object.assign({},opts,{signal:ac.signal})).then(function(r){clearTimeout(to);clearTimeout(slow);if(r.status===401){try{localStorage.removeItem('ajo_token');localStorage.removeItem('ajo_login_skipped')}catch(e){}window._ajoAuth=1;window._ajoLogin=1;renderSessionUI();if(window._ajoAuth===1){ajoRequireLogin();return null}maybeAuthGate();}if(!r.ok)throw 0;return r.json()}).catch(function(){clearTimeout(slow);return attempt()})}catch(e){return attempt()}}return attempt()}
 function panel(id){var p=document.getElementById(id);var open=p.style.display!=='none';['mPanel','oPanel','hPanel','sPanel','rPanel','pPanel'].forEach(function(x){var el=document.getElementById(x);if(el)el.style.display='none'});p.style.display=open?'none':'block'}
 var currentGroup={id:'g-aj4821',code:'AJ-4821',name:'Aunty Bola Market Women'};
 try{var _cg=localStorage.getItem('ajo_current');if(_cg)currentGroup=JSON.parse(_cg)}catch(e){}
@@ -409,6 +426,7 @@ function scoreBand(s){s=Number(s)||0;return s>=800?{t:'Platinum',next:null}:(s>=
 function renderHomeLive(){
   var h=new Date().getHours();var gr=document.getElementById('greet');if(gr)gr.innerText=h<12?'Good morning':(h<17?'Good afternoon':'Good evening');
   var me=myId();var nm=document.getElementById('homeName');if(nm)nm.innerText=(me&&me.name)||'Member';
+  renderSessionUI();
   var lc=document.getElementById('linkCta');if(lc)lc.style.display=me?'none':'block';
   var rc=document.getElementById('refCode');if(rc)rc.innerText='Code: '+currentGroup.code+' — share it so members can request to join.';
   var aj=(me&&me.ajid)||null;
@@ -635,19 +653,57 @@ function checkAppUpdate(){
    page instead. Sign out clears the session and goes to the login page. */
 function ajoSignout(){
   var t='';try{t=localStorage.getItem('ajo_token')||''}catch(e){}
-  try{localStorage.removeItem('ajo_token');localStorage.removeItem('ajo_user');localStorage.removeItem('ajo_login_skipped')}catch(e){}
+  // Tell the server first (best effort - the session dies locally either way).
   try{api('/api/auth/logout',{method:'POST',headers:{'Authorization':'Bearer '+t}}).catch(function(){})}catch(e){}
-  setTimeout(function(){location.href='login.html'},50);
+  // Clear everything that belongs to this member on this device: the session,
+  // the cached profile, the group list and the phone we remembered.
+  try{
+    ['ajo_token','ajo_user','ajo_phone','ajo_groups','ajo_current','ajo_login_skipped'].forEach(function(k){try{localStorage.removeItem(k)}catch(e){}});
+  }catch(e){}
+  try{sessionStorage.clear()}catch(e){}
+  window._ajoAuth=1;window._ajoLogin=1;
+  try{localStorage.setItem('ajo_signed_out','1')}catch(e){}
+  setTimeout(function(){location.replace('login.html')},60);
+}
+// Show who is signed in and where the sign-out buttons live.
+function renderSessionUI(){
+  var me=myId();
+  var tok=ajoToken();
+  var phone=(me&&me.phone)||'';
+  try{if(!phone)phone=localStorage.getItem('ajo_phone')||''}catch(e){}
+  var on=!!(tok||me);
+  var hl=document.getElementById('hdrLogout');if(hl)hl.style.display=on?'inline-block':'none';
+  var mr=document.getElementById('menuLogoutRow');if(mr)mr.style.display=on?'flex':'none';
+  var so=document.getElementById('accSignout');if(so)so.style.display=on?'block':'none';
+  var hw=document.getElementById('homeWho');if(hw)hw.style.display=on&&phone?'block':'none';
+  var hp=document.getElementById('homePhone');if(hp)hp.innerText=phone||'—';
+  var aw=document.getElementById('accWho');if(aw)aw.style.display=on&&phone?'block':'none';
+  var ap=document.getElementById('accPhone');if(ap)ap.innerText=phone||'—';
+}
+// When the API is locked there is nothing to show without a session: send the
+// member to the login page instead of an empty dashboard.
+function ajoRequireLogin(){
+  try{if(location.pathname.indexOf('login.html')>=0)return}catch(e){}
+  try{location.replace('login.html')}catch(e){}
 }
 function ajoGuardDashboard(){
   var t='';try{t=localStorage.getItem('ajo_token')||''}catch(e){}
   var card=document.getElementById('accAuthCard');if(card)card.style.display='block';
-  if(!t)return;
+  renderSessionUI();
+  if(!t){
+    // No session and the API is locked -> the login page, not the dashboard.
+    if(window._ajoAuth===1)ajoRequireLogin();
+    return;
+  }
   api('/api/auth/me',{headers:{'Authorization':'Bearer '+t}}).then(function(j){
     if(!j||!j.user)return;
     if(j.user.verified===false){location.replace('verify.html?phone='+encodeURIComponent(j.user.phone||'')+'&purpose=login');return}
     var m=document.getElementById('accAuthMsg');if(m)m.textContent='Signed in as '+(j.user.name||j.user.phone)+'.';
-    var so=document.getElementById('accSignout');if(so)so.style.display='block';
+    // Keep the cached profile in step with the server (the phone number in
+    // particular - the header shows it).
+    var me2=myId();
+    if(me2&&j.user.phone&&me2.phone!==j.user.phone){me2.phone=j.user.phone;saveId(me2)}
+    renderSessionUI();
   }).catch(function(){});
 }
 try{if('serviceWorker' in navigator&&location.protocol!=='file:'){navigator.serviceWorker.register('sw.js').catch(function(){})}}catch(e){}

@@ -37,6 +37,7 @@ a{color:var(--gold)}
 <div class="card">
   <h1>Sign in</h1>
   <p class="muted">Welcome back.</p>
+  <p class="muted" id="liNote" style="display:none;color:#F87171;font-weight:700">You have been signed out. Sign in again to continue.</p>
 
   <label for="liPhone">Phone number</label>
   <input id="liPhone" inputmode="tel" placeholder="08031234567" autocomplete="tel">
@@ -56,6 +57,8 @@ var API_BASES=['https://ajocredit-api.onrender.com','http://localhost:4000'];
 function api(path,opts){opts=opts||{};var i=0;function attempt(){if(i>=API_BASES.length)return Promise.resolve(null);var url=API_BASES[i++];try{var ac=new AbortController();var to=setTimeout(function(){ac.abort()},30000);return fetch(url+path,Object.assign({},opts,{signal:ac.signal})).then(function(r){clearTimeout(to);return r.text().then(function(t){try{var b=JSON.parse(t);b.__status=r.status;return b}catch(e){return{__status:r.status,error:'Unexpected reply from the server.'}}})}).catch(function(){clearTimeout(to);return attempt()})}catch(e){return attempt()}}return attempt()}
 function normPhone(p){p=String(p||'').replace(/[\s\-()]/g,'');if(/^0[789][01]\d{8}$/.test(p))return '+234'+p.slice(1);if(/^234[789][01]\d{8}$/.test(p))return '+'+p;if(/^\+234[789][01]\d{8}$/.test(p))return p;return null}
 function deviceId(){var d='';try{d=localStorage.getItem('ajo_device')||''}catch(e){}if(!d){d='web-'+Math.random().toString(36).slice(2)+Date.now().toString(36);try{localStorage.setItem('ajo_device',d)}catch(e){}}return d}
+// A member who just tapped "Sign out" gets a clear note, not a blank page.
+try{if(localStorage.getItem('ajo_signed_out')==='1'){localStorage.removeItem('ajo_signed_out');var nt=document.getElementById('liNote');if(nt)nt.style.display='block'}}catch(e){}
 function login(){
   var e=document.getElementById('liErr');e.textContent='';
   var phone=document.getElementById('liPhone').value.trim();
