@@ -312,8 +312,16 @@ function installRoutes(ctx) {
   function requireAdmin(req, res, next) {
     const secret = process.env.AGENT_ADMIN_TOKEN || '';
     const got = String(req.headers['x-admin-token'] || req.query.admin_token || '');
-    if (!secret || !got || got !== secret) {
-      return res.status(403).json({ error: 'Admin access is not switched on.' });
+    if (!secret) {
+      return res.status(403).json({
+        error: 'The admin panel is not switched on yet. Set AGENT_ADMIN_TOKEN on the server, save, and wait for the redeploy.',
+      });
+    }
+    if (!got) {
+      return res.status(403).json({ error: 'Paste your admin key into the Admin Key box, then press "Open the list".' });
+    }
+    if (got !== secret) {
+      return res.status(403).json({ error: 'That admin key is not right. It must match AGENT_ADMIN_TOKEN on the server exactly.' });
     }
     next();
   }
