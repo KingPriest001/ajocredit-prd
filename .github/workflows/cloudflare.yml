@@ -20,12 +20,16 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Stage site (APK under /releases/, local config excluded)
+      - name: Stage site (local config excluded)
         run: |
           rm -rf cfdeploy && mkdir -p cfdeploy
           cp -r prototype/* cfdeploy/ && rm -f cfdeploy/ajocredit.apk cfdeploy/config.local.js
-          mkdir -p cfdeploy/releases
-          cp releases/* cfdeploy/releases/ 2>/dev/null || true
+          # The APK is NOT copied to the mirror. Cloudflare Pages refuses files over
+          # 25 MiB and the APK is now bigger than that (the live-update plugin adds
+          # native libraries). Nothing needs it here: the version manifest points at
+          # the absolute GitHub Pages and GitHub Releases URLs, and GitHub Pages
+          # serves the file fine.
+          rm -rf cfdeploy/releases
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
