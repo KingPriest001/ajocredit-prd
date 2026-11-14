@@ -90,8 +90,13 @@ does not report itself ready within `appReadyTimeout` (30 s). That is why
 ## The agent programme
 
 Agents bring Ajo groups to AJOCREDIT and earn **₦500 per member** (held until
-that member's first contribution) **plus 1% of every contribution** for 12
-months.
+that member's first contribution) **plus 1% of that first contribution, once**.
+
+The percentage is deliberately a one-time bonus. AJOCREDIT collects about **1%
+in fees** on every contribution (1.5% under ₦10,000, 1% between ₦10,000 and
+₦100,000, 0.75% above), so a percentage that kept running would hand the
+agent the whole fee and leave AJOCREDIT nothing. The standing reward is the
+flat ₦500 per member who joins and becomes active.
 
 | Page | What it is |
 |---|---|
@@ -121,8 +126,51 @@ months.
 | `AGENT_ADMIN_TOKEN` | Shared secret for `/admin/agents.html`. Unset = the panel is closed. |
 | `AGENT_SITE_URL` | The public site used in the WhatsApp links (default `https://ajocredit.pages.dev`). |
 
-**To switch the admin panel on:** set `AGENT_ADMIN_TOKEN` on Render to a long
-random string, then paste the same string into the panel's "Admin Key" box.
+### Switching the admin panel on
+
+The panel is closed until `AGENT_ADMIN_TOKEN` is set on the server. It is one
+secret, used in two places — the server and the panel.
+
+**Route A — the Render dashboard (no API key needed)**
+
+1. Render → your **AJOCREDIT API** service → **Environment**.
+2. **Add Environment Variable** → key `AGENT_ADMIN_TOKEN`.
+   - For the value, generate a long random one and copy it. In PowerShell:
+     ```powershell
+     [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(24)).ToLower()
+     ```
+     (or just type any long string of random characters — nothing is stored in
+     the browser, it is only compared on the server).
+3. **Save** → Render redeploys (1–3 minutes).
+4. Open <https://ajocredit.pages.dev/admin/agents.html>, paste the **same**
+   string into the **Admin Key** box → **Open the list**.
+
+**Route B — the API script (if you have a Render API key)**
+
+```powershell
+cd "C:\Users\unsto\OneDrive\Documents\QUBATORS PROJECT\NEW PRD\api"
+$env:RENDER_API_KEY = "rnd_xxxxxxxxxxxxxxxx"   # Render → Account Settings → API Keys
+node render-env.mjs
+```
+
+The script merges into the live service (it never deletes your other
+variables) and **prints the admin key** — copy that into the panel's Admin Key
+box. It reuses the token already on the service, so running it twice does not
+rotate the key. To rotate it on purpose:
+
+```powershell
+$env:AGENT_ADMIN_TOKEN = "your-new-long-random-string"; node render-env.mjs
+```
+
+**Check it worked:**
+
+```powershell
+curl.exe -s -H "x-admin-token: YOUR_KEY" https://ajocredit-api.onrender.com/api/admin/agents
+```
+
+- `{"ok":true,...}` → the key is right.
+- `403 {"error":"Admin access is not switched on."}` → the variable is not set
+  on Render yet, or the key does not match exactly.
 
 **WhatsApp:** the agent module records every message it prepares in
 `agent_messages` and gives the agent a `wa.me` link to send it from their own

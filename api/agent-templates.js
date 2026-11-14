@@ -48,7 +48,7 @@ What you can do now:
 ✅ Migrate your existing Ajo/Esusu groups to AJOCREDIT
 ✅ Create new groups for your members
 ✅ Add Sub-Agents under you
-✅ Earn ₦500 per active member + 1% of first contribution
+✅ Earn ₦500 per active member + 1% of their first contribution
 
 Login to your dashboard here 👇
 ajocredit.pages.dev/agent-dashboard
@@ -238,7 +238,7 @@ const RECRUIT_SCRIPTS = {
 };
 
 const COMMISSION_EXPLAINER =
-  'Every member you refer earns you ₦500 when they make their first contribution - and 1% of every contribution they make afterward, for 12 full months. For example: a member who contributes ₦5,000 every month for a year earns you ₦500 + ₦600 = ₦1,100 total.';
+  'Every member you refer earns you ₦500 when they make their first contribution - plus 1% of that first contribution. That is the whole reward: one ₦500 and one percentage, paid once. You do not earn a percentage on what they contribute later.';
 
 const ALL = [
   ...Object.values(WHATSAPP),

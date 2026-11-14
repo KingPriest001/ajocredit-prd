@@ -14,7 +14,7 @@
 // Commission:
 //   * N500, created when a member joins through an agent link. It stays PENDING
 //     until that member makes their first contribution, then it is released.
-//   * 1% of every contribution that member makes, for 12 months.
+//   * 1% of that member's FIRST contribution, and nothing after that.
 //   * A sub-agent's group counts for the corporate parent at half rate (0.5%).
 
 const crypto = require('crypto');
@@ -23,7 +23,7 @@ const T = require('./agent-templates');
 
 const {
   STATUS, CAN_WORK, SIGNUP_COMMISSION, FIRST_CONTRIBUTION_RATE,
-  SUB_AGENT_RATE, RECURRING_MONTHS, agentCodeFor, parseCode,
+  SUB_AGENT_RATE, agentCodeFor, parseCode,
 } = core;
 
 // The public site that hosts the agent pages.
@@ -183,8 +183,12 @@ async function installSchema(deps) {
 
 // --------------------------------------------------------------- commission --
 // N500 held as PENDING when a member joins through an agent link. It is
-// released the moment that member makes their first contribution, together
-// with 1% of that contribution - and 1% of every contribution for a year.
+// released the moment that member makes their FIRST contribution, together
+// with 1% of that contribution - and nothing after that.
+//
+// The percentage is a one-time bonus on the first contribution only. AJOCREDIT
+// collects about 1% in fees on every contribution, so a percentage that kept
+// running would pay the agent the entire fee and leave us nothing.
 async function releaseOnFirstContribution(ctx, membershipId, amount) {
   const { q } = ctx;
   if (!membershipId) return;
@@ -195,28 +199,22 @@ async function releaseOnFirstContribution(ctx, membershipId, amount) {
   if (!u.length || !u[0].agent_id) return;
   const agentId = u[0].agent_id;
 
-  // The N500 is released exactly once, on the first contribution.
-  await q(
+  // The N500 is released exactly once - on the member's first contribution.
+  // If this update changes a row, this IS that first contribution.
+  const released = await q(
     `UPDATE agent_commissions SET status='EARNED'
-      WHERE agent_id=$1 AND member_id=$2 AND type='signup' AND status='PENDING'`,
+      WHERE agent_id=$1 AND member_id=$2 AND type='signup' AND status='PENDING'
+      RETURNING id`,
     [agentId, userId]
   );
+  if (!released.length) return;   // not the first contribution - nothing more is due
 
-  // 1% of this contribution, while the member is still inside their 12 months.
-  const first = await q(
-    `SELECT MIN(created_at) AS first_at FROM agent_commissions
-      WHERE agent_id=$1 AND member_id=$2 AND type='signup'`,
-    [agentId, userId]
-  );
-  const firstAt = first.length && first[0].first_at ? new Date(first[0].first_at) : new Date();
-  const monthsIn = (Date.now() - firstAt.getTime()) / (1000 * 60 * 60 * 24 * 30.44);
-  if (monthsIn > RECURRING_MONTHS) return;
-
+  // 1% of this first contribution, and only this one.
   const pct = Math.round(Number(amount) * FIRST_CONTRIBUTION_RATE * 100) / 100;
   if (pct <= 0) return;
   await q(
     `INSERT INTO agent_commissions (id, agent_id, member_id, group_id, amount, type, status)
-     VALUES ($1,$2,$3,$4,$5,'contribution','EARNED')`,
+     VALUES ($1,$2,$3,$4,$5,'first_contribution','EARNED')`,
     [rid('ac'), agentId, userId, m[0].group_id, pct]
   );
 }
@@ -332,7 +330,6 @@ function installRoutes(ctx) {
         ok: true,
         signup_commission: SIGNUP_COMMISSION,
         contribution_rate: FIRST_CONTRIBUTION_RATE,
-        recurring_months: RECURRING_MONTHS,
         sub_agent_rate: SUB_AGENT_RATE,
         explainer: T.COMMISSION_EXPLAINER,
         site: SITE,

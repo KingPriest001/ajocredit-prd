@@ -15,9 +15,14 @@
 //   * N500 "signup" commission, created when a member joins through an agent
 //     link. It stays PENDING until that member makes their first contribution,
 //     then it is released (EARNED).
-//   * 1% of every contribution that member makes, for 12 months from their
-//     first contribution.
-//   * A sub-agent's group counts for the corporate parent at half rate (0.5%).
+//   * 1% of that member's FIRST contribution, and nothing after that.
+//
+// WHY ONLY THE FIRST CONTRIBUTION: AJOCREDIT collects an average fee of about
+// 1% on every contribution (1.5% under N10,000, 1% between N10,000 and
+// N100,000, 0.75% above). A percentage that kept running for 12 months would
+// hand the agent the whole fee and leave AJOCREDIT nothing, so the percentage
+// is a one-time bonus on the first contribution and the N500 is the standing
+// reward for bringing an active member.
 
 const crypto = require('crypto');
 
@@ -28,8 +33,6 @@ const CORP_PREFIX = 'ZEN-CORP';
 const SIGNUP_COMMISSION = 500;
 const FIRST_CONTRIBUTION_RATE = 0.01;
 const SUB_AGENT_RATE = 0.005;
-// How long the recurring percentage keeps running after the first contribution.
-const RECURRING_MONTHS = 12;
 
 const STATUS = {
   ACTIVE: 'ACTIVE',
@@ -80,7 +83,7 @@ function money(n) {
 
 // What an agent earns, in the words we show to members and agents.
 const COMMISSION_EXPLAINER =
-  'Every member you refer earns you N500 when they make their first contribution - and 1% of every contribution they make afterward, for 12 full months. For example: a member who contributes N5,000 monthly for a year earns you N500 + N600 = N1,100 total.';
+  'Every member you refer earns you N500 when they make their first contribution - plus 1% of that first contribution. That is the whole reward: one N500 and one percentage, paid once. You do not earn a percentage on what they contribute later.';
 
 module.exports = {
   STATUS,
@@ -88,7 +91,6 @@ module.exports = {
   SIGNUP_COMMISSION,
   FIRST_CONTRIBUTION_RATE,
   SUB_AGENT_RATE,
-  RECURRING_MONTHS,
   IND_PREFIX,
   CORP_PREFIX,
   isAgentType,

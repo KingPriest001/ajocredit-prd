@@ -19,6 +19,10 @@
     <b>🔑 Admin Key</b>
     <label for="tok">Admin token</label>
     <input id="tok" type="password" placeholder="Paste your admin token">
+    <label style="display:flex;gap:10px;align-items:center;color:var(--mut);font-size:12px;cursor:pointer;margin-top:8px">
+      <input id="tokRemember" type="checkbox" style="width:auto;margin:0" onchange="rememberKey(this)">
+      <span>Remember on this phone (only if this is your own phone)</span>
+    </label>
     <button class="btn" onclick="load()">Open the list</button>
     <p class="note" id="tokNote">The admin panel is switched off until an admin token is set on the server.</p>
   </div>
@@ -54,13 +58,34 @@
 <script>
 var FILTER={type:'',status:''}, AGENTS=[];
 function tok(){return document.getElementById('tok').value.trim();}
+// Remembering the key is opt-in: this panel may be opened on a shared phone,
+// and the key is as powerful as the admin panel itself.
+(function(){
+  try{
+    var saved=localStorage.getItem('ajo_admin_key');
+    if(saved && localStorage.getItem('ajo_admin_remember')==='1'){
+      document.getElementById('tok').value=saved;
+      var cb=document.getElementById('tokRemember');if(cb)cb.checked=true;
+    }
+  }catch(e){}
+})();
 function admApi(path,opts){
   opts=opts||{};
   opts.headers=Object.assign({},opts.headers||{},{'x-admin-token':tok()});
   return AJO.api(path,opts);
 }
-function filt(v,el){
-  var chips=el.parentNode.querySelectorAll('.chip');
+function rememberKey(cb){
+  try{
+    if(cb.checked){
+      localStorage.setItem('ajo_admin_key',tok());
+      localStorage.setItem('ajo_admin_remember','1');
+    }else{
+      localStorage.removeItem('ajo_admin_key');
+      localStorage.removeItem('ajo_admin_remember');
+    }
+  }catch(e){}
+}
+function filt(v,el){  var chips=el.parentNode.querySelectorAll('.chip');
   for(var i=0;i<chips.length;i++)chips[i].classList.remove('on');
   el.classList.add('on');
   if(FILTER.type&&['individual','corporate'].indexOf(v)>=0)FILTER.type=v;
