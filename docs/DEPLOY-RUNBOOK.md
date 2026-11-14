@@ -135,12 +135,23 @@ secret, used in two places — the server and the panel.
 
 1. Render → your **AJOCREDIT API** service → **Environment**.
 2. **Add Environment Variable** → key `AGENT_ADMIN_TOKEN`.
-   - For the value, generate a long random one and copy it. In PowerShell:
+   - For the value, generate a long random one and copy it. Any of these work
+     (the first is the one to use on Windows PowerShell 5.1):
      ```powershell
-     [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(24)).ToLower()
+     # 1. node - simplest
+     node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
+
+     # 2. PowerShell 5.1 (Windows PowerShell - not PowerShell 7)
+     $b = New-Object byte[] 24
+     $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+     $rng.GetBytes($b); $rng.Dispose()
+     ($b | ForEach-Object { $_.ToString('x2') }) -join ''
+
+     # 3. a GUID - one line, no crypto API needed
+     [guid]::NewGuid().ToString('N')
      ```
-     (or just type any long string of random characters — nothing is stored in
-     the browser, it is only compared on the server).
+   - Anything long and random works. Nothing is stored in the browser unless
+     you tick "Remember on this phone", and it is only compared on the server.
 3. **Save** → Render redeploys (1–3 minutes).
 4. Open <https://ajocredit.pages.dev/admin/agents.html>, paste the **same**
    string into the **Admin Key** box → **Open the list**.
