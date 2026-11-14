@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#101613">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<title>Become an Agent — AJOCREDIT</title>
+<link rel="stylesheet" href="agent.css">
+</head>
+<body>
+<div class="phone">
+<div class="live">Turn your Ajo into bank credit — save with your people, build a real financial identity.</div>
+
+<!-- ============ LANDING ============ -->
+<div class="screen on" id="sc-landing">
+  <div class="appbar" style="padding:4px 0 0"><button class="back" onclick="history.length>1?history.back():location.href='index.html'">‹</button><div style="flex:1"></div><span class="brand"><b>AJOCREDIT</b> · ZENONMAG</span></div>
+
+  <div class="greet">Become an Agent</div>
+  <h2 class="name">Bring your Ajo group to AJOCREDIT. Earn for every group you bring.</h2>
+
+  <div class="hero">
+    <div class="cap">💰 Agent Earnings</div>
+    <div class="amt">₦500</div>
+    <div class="cap" style="margin-top:4px">per active member + 1% of first contribution</div>
+    <button class="goldbtn" onclick="scrollToId('choose')">Start As Agent</button>
+  </div>
+
+  <div class="tiers4" id="tierRow">
+    <div id="tierG"><br>Groups<small>0</small></div>
+    <div id="tierM"><br>Members<small>0</small></div>
+    <div id="tierE"><br>Earned<small>₦0</small></div>
+    <div id="tierP"><br>Pending<small>₦0</small></div>
+  </div>
+
+  <div class="qgrid">
+    <button onclick="location.href='agent/migrate-group.html'"><span>🔄</span>Migrate Group</button>
+    <button onclick="location.href='agent-dashboard.html?new=1'"><span>➕</span>New Group</button>
+    <button onclick="location.href='agent/share-flyer.html'"><span>👥</span>Invite</button>
+    <button onclick="location.href='agent-dashboard.html'"><span>💰</span>My Earnings</button>
+  </div>
+
+  <div id="choose"></div>
+
+  <div class="card" id="cardA">
+    <div class="row"><b>🧑 Individual Agent</b><span class="badge green">Start now</span></div>
+    <p class="muted" style="margin-top:6px">I market to people &amp; groups. Thrift collector, market leader, POS agent.</p>
+    <button class="btn" onclick="startIndividual()">Start as Individual Agent</button>
+    <p class="note" style="text-align:center">Auto-approved in 3 mins</p>
+  </div>
+
+  <div class="card" id="cardB">
+    <div class="row"><b>🏛 Corporate Agent</b><span class="badge gold">24 hour review</span></div>
+    <p class="muted" style="margin-top:6px">Cooperative / Association / Church / Company / MFB</p>
+    <button class="btn sec" onclick="showCorporate()">Apply as Corporate Agent</button>
+    <p class="note" style="text-align:center">Verified in 24 hours by ZENONMAG team</p>
+  </div>
+
+  <details><summary>How It Works</summary><div class="detbody">
+    <b>1. Sign up</b> — create your AJOCREDIT account with your phone number.<br>
+    <b>2. Accept the Code</b> — read the Agent Code of Conduct and agree to it.<br>
+    <b>3. Get your code</b> — we give you a code like <b>ZEN-AG-4821</b> and a link to share.<br>
+    <b>4. Bring your group</b> — help your group join. Every member who joins and makes a first contribution earns you ₦500 + 1%.<br>
+    <b>5. Get paid</b> — commission is paid by ZENONMAG CONCEPTS VENTSURES to your bank or OPay account.
+  </div></details>
+
+  <details><summary>📖 Agent Guide</summary><div class="detbody">
+    <b>Mama Bola says:</b> "No wahala! You do not touch anybody's money. You only show them how to join with your code. The money moves inside the app, and your commission comes from the office."<br><br>
+    <b>What you need:</b> your phone, your bank or OPay account, and your Ajo group.<br>
+    <b>What you must never do:</b> collect cash, ask for anyone's OTP or PIN, or promise a loan.
+  </div></details>
+
+  <div style="text-align:center;margin:14px 0"><a class="pillbtn" href="agent/code-of-conduct.html">Start</a></div>
+</div>
+
+<!-- ============ INDIVIDUAL FORM ============ -->
+<div class="screen" id="sc-individual">
+  <div class="appbar" style="padding:4px 0 0"><button class="back" onclick="show('landing')">‹</button><b>Individual Agent</b><span style="width:34px"></span></div>
+  <p class="note" style="margin-top:6px">Fill this in and we will give you your Agent Code straight away.</p>
+
+  <div class="card">
+    <label for="fName">Full Name</label>
+    <input id="fName" placeholder="Your name">
+    <label for="fPhone">Phone number (your login)</label>
+    <input id="fPhone" inputmode="tel" placeholder="08031234567">
+    <button class="btn sec" id="otpBtn" onclick="sendOtp()">Send code to my phone</button>
+    <label for="fOtp">6-digit code we texted you</label>
+    <input id="fOtp" inputmode="numeric" placeholder="000000">
+    <label for="fWa">WhatsApp number</label>
+    <input id="fWa" inputmode="tel" placeholder="08031234567">
+    <label for="fNin">NIN</label>
+    <input id="fNin" placeholder="Your NIN">
+    <label for="fMkt">Market / Location</label>
+    <select id="fMkt">
+      <option>Wuse</option><option>Garki</option><option>Utako</option><option>Gwagwalada</option>
+      <option>Nyanya</option><option>Kubwa</option><option>Other</option>
+    </select>
+    <input id="fMktOther" placeholder="Tell us your market" style="display:none">
+    <label for="fBank">Bank Name (or Opay / PalmPay)</label>
+    <select id="fBank">
+      <option>Access Bank</option><option>Zenith Bank</option><option>Guaranty Trust Bank</option>
+      <option>Union Bank</option><option>First Bank</option><option>Stanbic IBTC</option>
+      <option>Opay</option><option>PalmPay</option><option>Moniepoint</option><option>Other</option>
+    </select>
+    <label for="fAcct">Account Number</label>
+    <input id="fAcct" inputmode="numeric" placeholder="0123456789">
+    <label for="fAcctName">Account Name</label>
+    <input id="fAcctName" placeholder="Name on the account">
+    <label for="fSelfie">Selfie (optional)</label>
+    <input id="fSelfie" type="file" accept="image/*" style="padding:10px">
+    <label style="display:flex;gap:12px;align-items:flex-start;color:var(--txt);font-size:14px;font-weight:700;cursor:pointer;margin-top:14px">
+      <button class="check" id="cBox" type="button" onclick="toggleC()" style="margin-top:0">✓</button>
+      <span>I have read and accept the <a href="agent/code-of-conduct.html" style="color:var(--gold)">Agent Code of Conduct</a>.</span>
+    </label>
+  </div>
+
+  <p class="note bad" id="iErr" style="text-align:center"></p>
+  <button class="btn" id="iBtn" onclick="submitIndividual()">Submit — Get My Agent Code</button>
+</div>
+
+<!-- ============ CORPORATE FORM ============ -->
+<div class="screen" id="sc-corporate">
+  <div class="appbar" style="padding:4px 0 0"><button class="back" onclick="show('landing')">‹</button><b>Corporate Agent</b><span style="width:34px"></span></div>
+  <p class="note" style="margin-top:6px">Our team will call you within 24 hours to verify your organization.</p>
+
+  <div class="card">
+    <label for="cOrg">Organization Name</label>
+    <input id="cOrg" placeholder="e.g. Wuse Women Cooperative">
+    <label for="cType">Organization Type</label>
+    <select id="cType">
+      <option>Cooperative</option><option>Market Association</option><option>Church</option>
+      <option>Mosque</option><option>Company</option><option>MFB</option><option>NGO</option>
+    </select>
+    <label for="cCac">CAC / RC Number</label>
+    <input id="cCac" placeholder="RC-1234567">
+    <label for="cName">Contact Person</label>
+    <input id="cName" placeholder="Name">
+    <label for="cPhone">Contact Phone</label>
+    <input id="cPhone" inputmode="tel" placeholder="08031234567">
+    <label for="cEmail">Contact Email</label>
+    <input id="cEmail" type="email" placeholder="email@example.com">
+    <label for="cMembers">Estimated Members</label>
+    <input id="cMembers" inputmode="numeric" placeholder="50">
+    <label for="cGroups">Estimated Groups</label>
+    <input id="cGroups" inputmode="numeric" placeholder="3">
+    <label for="cLocs">Locations</label>
+    <input id="cLocs" placeholder="Wuse, Garki, Maitama">
+    <label for="cCacFile">Upload CAC Certificate</label>
+    <input id="cCacFile" type="file" accept="image/*,.pdf" style="padding:10px">
+    <label for="cDirFile">Upload Director ID</label>
+    <input id="cDirFile" type="file" accept="image/*,.pdf" style="padding:10px">
+  </div>
+
+  <p class="note bad" id="ccErr" style="text-align:center"></p>
+  <button class="btn" id="ccBtn" onclick="submitCorporate()">Submit Application</button>
+</div>
+
+<!-- ============ SUCCESS ============ -->
+<div class="screen" id="sc-success">
+  <div class="appbar" style="padding:4px 0 0"><span style="width:34px"></span><b>Welcome</b><span style="width:34px"></span></div>
+  <div id="successBody"></div>
+</div>
+
+</div>
+<script src="agent.js"></script>
+<script>
+var OTPSENT=false;
+function show(id){
+  ['landing','individual','corporate','success'].forEach(function(x){
+    document.getElementById('sc-'+x).classList.toggle('on',x===id);
+  });
+  window.scrollTo(0,0);
+}
+function scrollToId(id){var el=document.getElementById(id);if(el)el.scrollIntoView({behavior:'smooth'});}
+function toggleC(){var b=document.getElementById('cBox');b.classList.toggle('on');}
+function startIndividual(){show('individual');}
+function showCorporate(){show('corporate');}
+
+document.getElementById('fMkt').addEventListener('change',function(){
+  document.getElementById('fMktOther').style.display=this.value==='Other'?'block':'none';
+});
+
+// Pre-fill the phone from the signed-in account.
+AJO.api('/api/auth/me').then(function(r){
+  if(r&&r.body&&r.body.user){
+    document.getElementById('fPhone').value=r.body.user.phone||'';
+    if(!document.getElementById('fName').value)document.getElementById('fName').value=r.body.user.name||'';
+  }
+});
+
+// The tier row shows the agent's own numbers, if they already are an agent.
+AJO.api('/api/agent/me').then(function(r){
+  if(r&&r.body&&r.body.agent&&r.body.stats){
+    var s=r.body.stats;
+    document.getElementById('tierG').innerHTML='<br>Groups<small>'+(s.groups_total||0)+'</small>';
+    document.getElementById('tierM').innerHTML='<br>Members<small>'+(s.members_total||0)+'</small>';
+    document.getElementById('tierE').innerHTML='<br>Earned<small>'+AJO.money(s.earned)+'</small>';
+    document.getElementById('tierP').innerHTML='<br>Pending<small>'+AJO.money(s.pending)+'</small>';
+  }
+});
+
+function sendOtp(){
+  var p=document.getElementById('fPhone').value.trim();
+  if(!p){document.getElementById('iErr').textContent='Enter your phone number first.';return;}
+  var b=document.getElementById('otpBtn');b.disabled=true;b.textContent='Sending…';
+  AJO.apiPublic('/api/otp/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:p})}).then(function(r){
+    b.disabled=false;b.textContent='Send code to my phone';
+    if(r&&r.ok&&r.body&&r.body.ok){OTPSENT=true;document.getElementById('iErr').textContent='';AJO.toast('Code sent');}
+    else document.getElementById('iErr').textContent=(r&&r.body&&r.body.error)||'Could not send the code. Try again.';
+  });
+}
+
+function submitIndividual(){
+  var name=document.getElementById('fName').value.trim();
+  var phone=document.getElementById('fPhone').value.trim();
+  var otp=document.getElementById('fOtp').value.replace(/\D/g,'');
+  var conduct=document.getElementById('cBox').classList.contains('on');
+  var err=document.getElementById('iErr');
+  if(name.length<2){err.textContent='Enter your full name.';return;}
+  if(!phone){err.textContent='Enter your phone number.';return;}
+  if(otp.length!==6){err.textContent='Enter the 6-digit code we sent you.';return;}
+  if(!conduct){err.textContent='Please accept the Agent Code of Conduct.';return;}
+  err.textContent='';
+  var btn=document.getElementById('iBtn');btn.disabled=true;btn.textContent='Checking…';
+
+  // Verify the phone first - the agent code is only issued to a real person.
+  AJO.apiPublic('/api/otp/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:phone,code:otp,device_id:'agent-'+Math.random().toString(36).slice(2)})}).then(function(r){
+    if(!r||!r.ok||!r.body||!r.body.ok){
+      btn.disabled=false;btn.textContent='Submit — Get My Agent Code';
+      err.textContent=(r&&r.body&&r.body.error)||'That code is not right.';
+      return;
+    }
+    try{localStorage.setItem('ajo_token',r.body.token);}catch(e){}
+    var mkt=document.getElementById('fMkt').value;
+    if(mkt==='Other')mkt=document.getElementById('fMktOther').value||'Other';
+    return AJO.api('/api/agent/apply/individual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      name:name,phone:phone,whatsapp:document.getElementById('fWa').value.trim(),
+      nin:document.getElementById('fNin').value.trim(),market_location:mkt,
+      bank_name:document.getElementById('fBank').value,
+      account_number:document.getElementById('fAcct').value.trim(),
+      account_name:document.getElementById('fAcctName').value.trim(),
+      code_of_conduct_accepted:true
+    })}).then(function(a){
+      if(!a||!a.ok||!a.body||!a.body.ok){
+        btn.disabled=false;btn.textContent='Submit — Get My Agent Code';
+        err.textContent=(a&&a.body&&a.body.error)||'Could not create your agent code.';
+        return;
+      }
+      successIndividual(a.body);
+    });
+  }).catch(function(){
+    btn.disabled=false;btn.textContent='Submit — Get My Agent Code';
+    err.textContent='Network problem. Please try again.';
+  });
+}
+
+function successIndividual(a){
+  show('success');
+  var link='ajocredit.app/join/'+a.agent_code;
+  document.getElementById('successBody').innerHTML=
+    '<div class="hero"><div class="cap">🎉 You are an Agent</div><div class="amt">'+AJO.esc(a.agent_code)+'</div>'+
+    '<div class="cap" style="margin-top:6px">Share this link with your Ajo group.</div></div>'+
+    '<div class="card"><b>Your Agent Link</b>'+
+    '<p class="muted" style="font-size:20px;font-weight:800;color:var(--gold);word-break:break-all" id="sLink">'+AJO.esc(link)+'</p>'+
+    '<button class="btn" onclick="AJO.copy(document.getElementById(\'sLink\').textContent)">Copy My Link</button>'+
+    '<div style="display:flex;gap:8px;margin-top:8px">'+
+    '<a class="pillbtn" style="flex:1;text-align:center" href="'+AJO.waLink('Join my Ajo group on AJOCREDIT. My agent code is '+a.agent_code+'. Join here: '+link)+'" target="_blank" rel="noopener">Share on WhatsApp</a>'+
+    '<a class="pillbtn" style="flex:1;text-align:center" href="agent/share-flyer.html">Download Flyer</a></div></div>'+
+    '<a class="btn sec" href="agent-dashboard.html">Go to Agent Dashboard</a>';
+}
+
+function submitCorporate(){
+  var org=document.getElementById('cOrg').value.trim();
+  var cname=document.getElementById('cName').value.trim();
+  var cphone=document.getElementById('cPhone').value.trim();
+  var err=document.getElementById('ccErr');
+  if(org.length<2){err.textContent='Enter your organization name.';return;}
+  if(cname.length<2){err.textContent='Enter the contact person.';return;}
+  if(!cphone){err.textContent='Enter the contact phone.';return;}
+  err.textContent='';
+  var btn=document.getElementById('ccBtn');btn.disabled=true;btn.textContent='Submitting…';
+  AJO.apiPublic('/api/agent/apply/corporate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    organization:org,organization_type:document.getElementById('cType').value,
+    cac_number:document.getElementById('cCac').value.trim(),
+    contact_name:cname,contact_phone:cphone,
+    contact_email:document.getElementById('cEmail').value.trim(),
+    estimated_members:document.getElementById('cMembers').value,
+    estimated_groups:document.getElementById('cGroups').value,
+    locations:document.getElementById('cLocs').value.trim(),
+    market_location:document.getElementById('cLocs').value.trim()
+  })}).then(function(r){
+    btn.disabled=false;btn.textContent='Submit Application';
+    if(!r||!r.ok||!r.body||!r.body.ok){err.textContent=(r&&r.body&&r.body.error)||'Could not submit. Please try again.';return;}
+    show('success');
+    var b=r.body;
+    document.getElementById('successBody').innerHTML=
+      '<div class="hero"><div class="cap">⏳ Pending Verification</div><div class="amt" style="font-size:22px">Our team will call you within 24 hours.</div>'+
+      '<div class="cap" style="margin-top:6px">Application ID: '+AJO.esc(b.application_ref||'')+'</div></div>'+
+      '<div class="card"><b>Send this to the team on WhatsApp</b>'+
+      '<div class="tmpl pre" id="tmplA">'+AJO.esc(b.template.body)+'</div>'+
+      '<button class="btn" onclick="AJO.copy(document.getElementById(\'tmplA\').textContent)">Copy Text</button>'+
+      '<a class="pillbtn" style="display:block;text-align:center;margin-top:8px" href="'+AJO.esc(b.wa_link||'#')+'" target="_blank" rel="noopener">Share on WhatsApp</a></div>'+
+      '<a class="btn sec" href="index.html">Back to app</a>';
+  }).catch(function(){
+    btn.disabled=false;btn.textContent='Submit Application';
+    err.textContent='Network problem. Please try again.';
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#101613">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<title>Join your Ajo group — AJOCREDIT</title>
+<link rel="stylesheet" href="agent.css">
+</head>
+<body>
+<div class="phone">
+<div class="live">Turn your Ajo into bank credit — save with your people, build a real financial identity.</div>
+
+<div class="screen on">
+  <div class="appbar" style="padding:4px 0 0"><span style="width:34px"></span><span class="brand"><b>AJOCREDIT</b> · ZENONMAG</span><span style="width:34px"></span></div>
+
+  <div id="inviteBox" style="display:none">
+    <div class="hero">
+      <div class="cap">👥 You have been invited to join an Ajo group</div>
+      <div class="amt" id="who" style="font-size:20px">—</div>
+      <div class="cap" style="margin-top:6px" id="code">—</div>
+    </div>
+    <div class="card">
+      <b>What is AJOCREDIT?</b>
+      <p class="muted">Save together in the app, contribute on time, collect in turn, and build a credit score banks can see.</p>
+      <ul class="checklist">
+        <li><span class="ok">✓</span><span>Pay your contribution inside the app — no cash handling.</span></li>
+        <li><span class="ok">✓</span><span>See who has paid and whose turn is next.</span></li>
+        <li><span class="ok">✓</span><span>Build a credit score with every contribution.</span></li>
+      </ul>
+      <a class="btn" href="signup.html" id="signupBtn">Create my account</a>
+      <a class="btn sec" href="login.html" id="loginBtn">I already have an account</a>
+    </div>
+  </div>
+
+  <div id="plainBox">
+    <div class="greet">Welcome</div>
+    <h2 class="name">Join your Ajo group on AJOCREDIT</h2>
+    <div class="card">
+      <label for="code">Invite code</label>
+      <input id="code" placeholder="ZEN-AG-4821 or AJ-12345">
+      <button class="btn" onclick="check()">Continue</button>
+      <p class="note bad" id="err"></p>
+    </div>
+    <a class="btn sec" href="index.html">Go to the app</a>
+  </div>
+</div>
+</div>
+<script src="agent.js"></script>
+<script>
+var CODE='';
+(function(){
+  var p=new URLSearchParams(location.search);
+  CODE=(p.get('code')||'').toUpperCase();
+  if(CODE){
+    document.getElementById('code').value=CODE;
+    check();
+  }
+})();
+
+function check(){
+  var c=document.getElementById('code').value.trim().toUpperCase();
+  if(!c){document.getElementById('err').textContent='Enter your invite code.';return;}
+  document.getElementById('err').textContent='';
+  AJO.apiPublic('/api/agent/code/'+encodeURIComponent(c)).then(function(r){
+    if(!r||!r.body){document.getElementById('err').textContent='Could not check that code.';return;}
+    if(!r.body.valid){
+      // It may be a group invite code rather than an agent code.
+      document.getElementById('err').textContent='';
+      document.getElementById('plainBox').innerHTML=
+        '<div class="hero"><div class="cap">👥 Join this Ajo group</div><div class="amt" style="font-size:20px">Invite code '+AJO.esc(c)+'</div>'+
+        '<div class="cap" style="margin-top:6px">Save together. Collect in turn. Build credit.</div></div>'+
+        '<a class="btn" href="signup.html?ref='+encodeURIComponent(c)+'">Create my account</a>'+
+        '<a class="btn sec" href="login.html?ref='+encodeURIComponent(c)+'">I already have an account</a>';
+      remember(c);
+      return;
+    }
+    document.getElementById('plainBox').style.display='none';
+    document.getElementById('inviteBox').style.display='block';
+    document.getElementById('who').textContent='Invited by '+(r.body.name||'an AJOCREDIT Agent');
+    document.getElementById('code').textContent='Your invite code: '+r.body.code;
+    document.getElementById('signupBtn').href='signup.html?ref='+encodeURIComponent(r.body.code);
+    document.getElementById('loginBtn').href='login.html?ref='+encodeURIComponent(r.body.code);
+    remember(r.body.code);
+  });
+}
+function remember(c){try{localStorage.setItem('ajo_agent_code',c);}catch(e){}}
+</script>
+</body>
+</html>

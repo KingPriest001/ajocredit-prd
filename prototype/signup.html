@@ -80,6 +80,8 @@ a{color:var(--gold)}
 var API_BASES=['https://ajocredit-api.onrender.com','http://localhost:4000'];
 function api(path,opts){opts=opts||{};var i=0;function attempt(){if(i>=API_BASES.length)return Promise.resolve(null);var url=API_BASES[i++];try{var ac=new AbortController();var to=setTimeout(function(){ac.abort()},30000);return fetch(url+path,Object.assign({},opts,{signal:ac.signal})).then(function(r){clearTimeout(to);return r.text().then(function(t){try{var b=JSON.parse(t);b.__status=r.status;return b}catch(e){return{__status:r.status,error:'Unexpected reply from the server.'}}})}).catch(function(){clearTimeout(to);return attempt()})}catch(e){return attempt()}}return attempt()}
 function normPhone(p){p=String(p||'').replace(/[\s\-()]/g,'');if(/^0[789][01]\d{8}$/.test(p))return '+234'+p.slice(1);if(/^234[789][01]\d{8}$/.test(p))return '+'+p;if(/^\+234[789][01]\d{8}$/.test(p))return p;return null}
+// The agent invite code, if this member came through an agent's link.
+function agentRef(){try{var p=new URLSearchParams(location.search);var c=p.get('ref')||localStorage.getItem('ajo_agent_code')||'';return c?String(c).toUpperCase().slice(0,40):''}catch(e){return ''}}
 function deviceId(){var d='';try{d=localStorage.getItem('ajo_device')||''}catch(e){}if(!d){d='web-'+Math.random().toString(36).slice(2)+Date.now().toString(36);try{localStorage.setItem('ajo_device',d)}catch(e){}}return d}
 // Email is optional - Skip clears it and continues the sign-up.
 function skipEmail(){document.getElementById('suEmail').value='';signup()}
@@ -97,9 +99,12 @@ function signup(){
   if(p1!==p2){e.textContent='The two passwords do not match.';return}
   if(!terms){e.textContent='Please accept the Terms to continue.';return}
   var b=document.getElementById('suBtn');b.disabled=true;e.textContent='';
-  api('/api/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,phone:normPhone(phone),email:mail,password:p1,terms:terms})}).then(function(j){
+  // An agent code from a join link is passed on, so the agent who brought this
+  // member in gets their commission when the member makes a first contribution.
+  var ref=agentRef();
+  api('/api/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,phone:normPhone(phone),email:mail,password:p1,terms:terms,ref:ref})}).then(function(j){
     b.disabled=false;
-    if(j&&j.ok){location.href='verify.html?phone='+encodeURIComponent(j.phone||normPhone(phone));return}
+    if(j&&j.ok){location.href='verify.html?phone='+encodeURIComponent(j.phone||normPhone(phone))+(ref?'&ref='+encodeURIComponent(ref):'');return}
     e.textContent=(j&&j.error)||'Could not create your account. Please try again.';
   }).catch(function(){b.disabled=false;e.textContent='Could not reach the server. Please try again.'});
 }

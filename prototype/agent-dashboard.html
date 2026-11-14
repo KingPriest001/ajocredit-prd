@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#101613">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<title>Agent Dashboard — AJOCREDIT</title>
+<link rel="stylesheet" href="agent.css">
+</head>
+<body>
+<div class="phone">
+<div class="live">Turn your Ajo into bank credit — save with your people, build a real financial identity.</div>
+
+<div class="screen on">
+  <div class="appbar" style="padding:4px 0 0"><button class="back" onclick="history.length>1?history.back():location.href='index.html'">‹</button><div style="flex:1"></div><span class="brand"><b>AJOCREDIT</b> · ZENONMAG</span></div>
+
+  <div id="dash">
+    <div class="greet">Agent Dashboard</div>
+    <h2 class="name" id="dName">—</h2>
+    <div class="row" style="margin-bottom:12px">
+      <span class="pill" id="dCode">—</span>
+      <span class="badge green" id="dStatus">—</span>
+    </div>
+
+    <div class="hero">
+      <div class="cap">💰 Total Commission Earned</div>
+      <div class="amt" id="dEarned">₦0</div>
+      <div class="cap" style="margin-top:4px" id="dPending">₦0 pending</div>
+    </div>
+
+    <div class="card">
+      <b>👥 Groups Brought</b>
+      <div class="row" style="margin-top:10px">
+        <div style="text-align:center;flex:1"><div style="font-size:22px;font-weight:800" id="gTotal">0</div><div class="note">Total</div></div>
+        <div style="text-align:center;flex:1"><div style="font-size:22px;font-weight:800" id="gMig">0</div><div class="note">Migrated</div></div>
+        <div style="text-align:center;flex:1"><div style="font-size:22px;font-weight:800" id="gNew">0</div><div class="note">New</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <b>🧑 Members Brought</b>
+      <div class="row" style="margin-top:10px">
+        <div style="text-align:center;flex:1"><div style="font-size:22px;font-weight:800" id="mTotal">0</div><div class="note">Total</div></div>
+        <div style="text-align:center;flex:1"><div style="font-size:22px;font-weight:800" id="mActive">0</div><div class="note">Active</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <b>💵 Commission</b>
+      <div class="row" style="margin-top:10px">
+        <div style="text-align:center;flex:1"><div style="font-size:18px;font-weight:800;color:var(--success)" id="cEarned">₦0</div><div class="note">Earned</div></div>
+        <div style="text-align:center;flex:1"><div style="font-size:18px;font-weight:800;color:var(--gold)" id="cPending">₦0</div><div class="note">Pending</div></div>
+        <div style="text-align:center;flex:1"><div style="font-size:18px;font-weight:800" id="cPaid">₦0</div><div class="note">Paid</div></div>
+      </div>
+    </div>
+
+    <button class="btn" onclick="location.href='agent/migrate-group.html'">➕ Migrate Existing Group</button>
+    <button class="btn sec" onclick="newGroup()">➕ Create New Group For Someone</button>
+    <button class="btn sec" onclick="location.href='agent/share-flyer.html'">📤 Share My Link / Flyer</button>
+
+    <div class="card">
+      <b>👥 My Groups</b>
+      <div id="groupList" style="margin-top:8px"><div class="empty">Loading…</div></div>
+    </div>
+
+    <div class="card">
+      <b>🧾 Payout History</b>
+      <div id="payoutList" style="margin-top:8px"><div class="empty">Nothing paid out yet.</div></div>
+    </div>
+
+    <div class="card">
+      <b>🔗 My Agent Link</b>
+      <p class="muted" id="myLink" style="font-size:18px;font-weight:800;color:var(--gold);word-break:break-all">—</p>
+      <button class="btn sec" onclick="copyLink()">Copy My Link</button>
+    </div>
+  </div>
+
+  <div id="notAgent" style="display:none">
+    <div class="card"><b>You are not an agent yet</b><p class="muted">Become an agent to see your groups, members and earnings.</p><a class="btn" href="become-agent.html">Become an Agent</a></div>
+  </div>
+</div>
+</div>
+<script src="agent.js"></script>
+<script>
+AJO.requireSession(function(){
+  AJO.api('/api/agent/dashboard').then(function(r){
+    if(!r){document.getElementById('dash').style.display='none';document.getElementById('notAgent').style.display='block';return;}
+    if(r.status===403){
+      var a=r.body&&r.body.agent;
+      document.getElementById('dash').style.display='none';
+      document.getElementById('notAgent').style.display='block';
+      document.getElementById('notAgent').innerHTML='<div class="card"><b>'+(a&&a.status==='PENDING'?'⏳ Pending Verification':'⚠️ Agent account')+'</b>'+
+        '<p class="muted">'+(r.body&&r.body.error||'Your agent account is not active yet.')+'</p>'+
+        (a&&a.status_reason?'<p class="note">'+AJO.esc(a.status_reason)+'</p>':'')+
+        '<a class="btn sec" href="index.html">Back to app</a></div>';
+      return;
+    }
+    if(!r.ok||!r.body||!r.body.ok){AJO.toast('Could not load your dashboard');return;}
+    paint(r.body);
+  });
+});
+
+function paint(d){
+  var a=d.agent,s=d.stats||{};
+  document.getElementById('dName').textContent=(a.name||a.organization||'Agent');
+  document.getElementById('dCode').textContent=a.agent_code||'';
+  var st=a.status||'';
+  var badge=document.getElementById('dStatus');
+  badge.textContent=st.charAt(0)+st.slice(1).toLowerCase();
+  badge.className='badge '+(st==='ACTIVE'?'green':(st==='PENDING'?'gold':'red'));
+  document.getElementById('dEarned').textContent=AJO.money(s.earned);
+  document.getElementById('dPending').textContent=AJO.money(s.pending)+' pending';
+  document.getElementById('gTotal').textContent=s.groups_total||0;
+  document.getElementById('gMig').textContent=s.groups_migrated||0;
+  document.getElementById('gNew').textContent=s.groups_new||0;
+  document.getElementById('mTotal').textContent=s.members_total||0;
+  document.getElementById('mActive').textContent=s.members_active||0;
+  document.getElementById('cEarned').textContent=AJO.money(s.earned);
+  document.getElementById('cPending').textContent=AJO.money(s.pending);
+  document.getElementById('cPaid').textContent=AJO.money(s.paid);
+  document.getElementById('myLink').textContent=d.link||'';
+
+  var gl=document.getElementById('groupList');
+  if(!d.groups||!d.groups.length){gl.innerHTML='<div class="empty">No groups yet. Migrate your first group above.</div>';}
+  else{
+    gl.innerHTML=d.groups.map(function(g){
+      return '<div class="member"><span><b>'+AJO.esc(g.group_name||'Ajo Group')+'</b><br><span class="note">'+
+        (g.source==='migrated'?'Migrated':'New')+' · '+AJO.money(g.amount)+' · '+(g.members_count||0)+' members'+
+        (g.migration_completed_at?' ✓':'')+'</span></span>'+
+        '<button class="pillbtn" onclick="openGroup(\''+g.id+'\')">Open</button></div>';
+    }).join('');
+  }
+  var pl=document.getElementById('payoutList');
+  if(!d.payouts||!d.payouts.length){pl.innerHTML='<div class="empty">Nothing paid out yet.</div>';}
+  else{
+    pl.innerHTML=d.payouts.map(function(p){
+      return '<div class="member"><span>'+AJO.money(p.amount)+'<br><span class="note">'+AJO.esc(p.type)+' · '+AJO.fmtDate(p.created_at)+'</span></span><span class="badge green">Paid</span></div>';
+    }).join('');
+  }
+  if(/[?&]new=1/.test(location.search))newGroup();
+}
+
+function copyLink(){AJO.copy(document.getElementById('myLink').textContent);}
+
+function newGroup(){
+  var name=prompt('Group name (e.g. Wuse Market Women Ajo)');
+  if(!name)return;
+  var amount=prompt('Contribution amount in Naira (e.g. 5000)','5000');
+  var size=prompt('How many members?','10');
+  AJO.api('/api/agent/groups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    name:name,amount:Number(amount)||5000,size:Number(size)||10,frequency:'Weekly'
+  })}).then(function(r){
+    if(r&&r.ok&&r.body&&r.body.ok){AJO.toast('Group created: '+r.body.invite_code);location.reload();}
+    else AJO.toast((r&&r.body&&r.body.error)||'Could not create the group');
+  });
+}
+
+function openGroup(id){
+  AJO.api('/api/agent/groups/'+id).then(function(r){
+    if(!r||!r.ok||!r.body)return;
+    var g=r.body.group||{};
+    var invites=(r.body.invites||[]).map(function(i){
+      return '<div class="member"><span>'+AJO.esc(i.name||'Invited')+'<br><span class="note">'+AJO.esc(i.phone)+'</span></span><span class="badge '+(i.status==='JOINED'?'green':'gold')+'">'+AJO.esc(i.status)+'</span></div>';
+    }).join('');
+    var msg='Group: '+(g.leader_name||'Ajo Group')+'\nMembers joined: '+r.body.joined+'\nInvite code: '+(g.group_id||'');
+    alert(msg+'\n\nInvite list:\n'+(invites||'none yet'));
+  });
+}
+</script>
+</body>
+</html>

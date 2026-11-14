@@ -55,6 +55,8 @@ function api(path,opts){opts=opts||{};var i=0;function attempt(){if(i>=API_BASES
 function q(name){var m=new RegExp('[?&]'+name+'=([^&]*)').exec(location.search);return m?decodeURIComponent(m[1].replace(/\+/g,' ')):''}
 function deviceId(){var d='';try{d=localStorage.getItem('ajo_device')||''}catch(e){}if(!d){d='web-'+Math.random().toString(36).slice(2)+Date.now().toString(36);try{localStorage.setItem('ajo_device',d)}catch(e){}}return d}
 var PHONE=q('phone'), PURPOSE=q('purpose');
+// The agent invite code, if this member came through an agent's link.
+function agentRef(){try{var c=q('ref')||localStorage.getItem('ajo_agent_code')||'';return c?String(c).toUpperCase().slice(0,40):''}catch(e){return ''}}
 try{if(!PHONE)PHONE=localStorage.getItem('ajo_phone')||''}catch(e){}
 document.getElementById('vPhone').textContent=PHONE||'your phone';
 if(PURPOSE){document.getElementById('vErr').textContent=''}
@@ -71,6 +73,9 @@ function verify(){
   var b=document.getElementById('vBtn');b.disabled=true;
   var body={phone:PHONE,code:c,device_id:deviceId()};
   if(PURPOSE)body.purpose=PURPOSE;
+  // An agent invite code carried through the sign-up link.
+  var ref=agentRef();
+  if(ref)body.ref=ref;
   api('/api/otp/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(j){
     b.disabled=false;
     if(j&&j.ok&&j.token){

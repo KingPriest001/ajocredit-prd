@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#101613">
+<link rel="icon" href="../icon.svg" type="image/svg+xml">
+<title>Agent Code of Conduct — AJOCREDIT</title>
+<link rel="stylesheet" href="../agent.css">
+</head>
+<body>
+<div class="phone">
+<div class="live">Turn your Ajo into bank credit — save with your people, build a real financial identity.</div>
+
+<div class="screen on">
+  <div class="appbar" style="padding:4px 0 0"><button class="back" onclick="history.length>1?history.back():location.href='../become-agent.html'">‹</button><div style="flex:1"></div><span class="brand"><b>AJOCREDIT</b> · ZENONMAG</span></div>
+
+  <div class="greet">Agent Code of Conduct</div>
+  <h2 class="name">AJOCREDIT by ZENONMAG CONCEPTS VENTSURES — Read this before you start.</h2>
+
+  <div class="hero">
+    <div class="cap">🤝 Your Promise As An Agent</div>
+    <div class="amt">No cash. No lies. No wahala.</div>
+    <div class="cap" style="margin-top:6px">Protect our members.</div>
+  </div>
+
+  <details open><summary>► 1. Who I Am</summary><div class="detbody">"I am an Agent of AJOCREDIT, a digital product of ZENONMAG CONCEPTS VENTSURES. I market AJOCREDIT and bring existing Ajo/Esusu groups to move to AJOCREDIT, or help individuals/cooperatives create new groups on AJOCREDIT. I am NOT staff of ZENONMAG CONCEPTS VENTSURES unless given a staff letter."</div></details>
+
+  <details><summary>► 2. I Will NEVER Collect Cash</summary><div class="detbody">"I will NEVER collect cash, transfer, or contribution money from any member on behalf of AJOCREDIT. All contributions must be paid by the member inside the AJOCREDIT app / bank transfer only. I will NEVER ask for a member's PIN, OTP, password, or BVN password."</div></details>
+
+  <details><summary>► 3. I Will Tell The Truth</summary><div class="detbody">"I will NOT promise loans, double money, or guaranteed payout dates that AJOCREDIT has not approved. I will NOT say 'AJOCREDIT is a bank' or 'Your money is doubled'. AJOCREDIT is a digital Ajo platform that helps you save together and build a real financial identity. I will explain clearly: Save together. Contribute on time. Collect in turn."</div></details>
+
+  <details><summary>► 4. I Will Respect Groups</summary><div class="detbody">"I will only migrate a group that has agreed to move to AJOCREDIT. I will get the Group Leader's consent first. I will NOT move a group without members knowing. I will NOT hijack another agent's group. If a group already has an agent, I will not claim it."</div></details>
+
+  <details><summary>► 5. I Will Protect People's Data</summary><div class="detbody">"I will NOT share members' phone numbers, NIN, or group details with anyone outside AJOCREDIT. I will NOT use member photos or videos for my own advert without their permission."</div></details>
+
+  <details><summary>► 6. How I Earn</summary><div class="detbody">"I earn ₦500 per active member + 1% of first contribution, only after that member makes their first contribution in the app. Commission is paid by ZENONMAG CONCEPTS VENTSURES to my bank / OPay account in the app. No member pays me commission directly. I will NOT charge members any extra fee to join AJOCREDIT."</div></details>
+
+  <details><summary>► 7. If I Break This Code</summary><div class="detbody">"ZENONMAG CONCEPTS VENTSURES can suspend my Agent Code, withhold unpaid commission, and permanently remove me from AJOCREDIT. For serious fraud, my details may be reported to the authorities."</div></details>
+
+  <div class="card" style="border:1.5px solid var(--gold)">
+    <label style="display:flex;gap:12px;align-items:flex-start;color:var(--txt);font-size:14px;font-weight:700;cursor:pointer;margin-top:0">
+      <button class="check" id="agreeBox" type="button" onclick="toggleAgree()" style="margin-top:0">&checkmark;</button>
+      <span>I have read this Code, I understand it, and I will follow it.</span>
+    </label>
+    <div class="muted" style="margin-top:12px;font-size:12px">
+      <div>Name: <b id="cName" style="color:var(--txt)">—</b></div>
+      <div>Code: <b id="cCode" style="color:var(--txt)">—</b></div>
+      <div>Phone: <b id="cPhone" style="color:var(--txt)">—</b></div>
+      <div>Date: <b id="cDate" style="color:var(--txt)">—</b></div>
+    </div>
+  </div>
+
+  <p class="note bad" id="cErr" style="text-align:center"></p>
+  <button class="btn" id="agreeBtn" disabled onclick="agree()">I Agree — Continue</button>
+  <div id="cNext"></div>
+</div>
+</div>
+<script src="../agent.js"></script>
+<script>
+var NAME='', CODE='', PHONE='';
+try{
+  var p=new URLSearchParams(location.search);
+  NAME=p.get('name')||''; CODE=(p.get('code')||'').toUpperCase(); PHONE=p.get('phone')||'';
+}catch(e){}
+if(!NAME){var u=AJO.savedUser();if(u){NAME=u.name||'';PHONE=u.phone||'';}}
+document.getElementById('cName').textContent=NAME||'—';
+document.getElementById('cCode').textContent=CODE||'—';
+document.getElementById('cPhone').textContent=PHONE||'—';
+document.getElementById('cDate').textContent=new Date().toLocaleDateString('en-NG',{day:'numeric',month:'long',year:'numeric'});
+var agreed=false;
+function toggleAgree(){
+  agreed=!agreed;
+  var b=document.getElementById('agreeBox');
+  b.classList.toggle('on',agreed);
+  b.textContent=agreed?'✓':'✓';
+  document.getElementById('agreeBtn').disabled=!agreed;
+}
+function agree(){
+  if(!agreed)return;
+  var btn=document.getElementById('agreeBtn');
+  btn.disabled=true; btn.textContent='Saving…';
+  var payload={name:NAME,phone:PHONE,agent_code:CODE};
+  // Save the acceptance on the agent record when the agent already has one.
+  AJO.api('/api/agent/me').then(function(r){
+    var agent=r&&r.body&&r.body.agent;
+    if(agent){
+      return AJO.api('/api/agent/apply/individual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        name:NAME,phone:PHONE,code_of_conduct_accepted:true})});
+    }
+    // No agent yet: remember it and send the agent to the form.
+    try{localStorage.setItem('ajo_conduct',JSON.stringify({name:NAME,phone:PHONE,agent_code:CODE,at:new Date().toISOString()}));}catch(e){}
+    location.href='../become-agent.html?conduct=1';
+  }).then(function(){
+    location.href='../become-agent.html?conduct=1';
+  }).catch(function(e){
+    btn.disabled=false; btn.textContent='I Agree — Continue';
+    document.getElementById('cErr').textContent='Could not save. Check your connection and try again.';
+  });
+}
+</script>
+</body>
+</html>

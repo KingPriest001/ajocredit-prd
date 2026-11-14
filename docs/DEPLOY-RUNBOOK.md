@@ -87,6 +87,48 @@ sent to Capgo's servers.
 does not report itself ready within `appReadyTimeout` (30 s). That is why
 `prototype/index.html` calls `notifyAppReady()` as soon as the app has loaded.
 
+## The agent programme
+
+Agents bring Ajo groups to AJOCREDIT and earn **₦500 per member** (held until
+that member's first contribution) **plus 1% of every contribution** for 12
+months.
+
+| Page | What it is |
+|---|---|
+| `become-agent.html` | "Become an Agent" — individual or corporate |
+| `agent/code-of-conduct.html` | The Agent Code of Conduct (must be ticked) |
+| `agent-dashboard.html` | Groups, members, earnings, payouts |
+| `agent/migrate-group.html` | The 5-step group migration checklist |
+| `agent/share-flyer.html` | The agent link, the QR flyer and the 3 WhatsApp templates |
+| `admin/agents.html` | The admin panel (approve / need info / reject / suspend, pay commission) |
+| `join.html` | The landing page for `ajocredit.app/join/<code>` |
+
+**Rules the code enforces (not just the words):**
+
+- An agent **never collects cash** — nothing in the agent API moves money.
+- An agent **never sees a member's balance** — the endpoints return counts and
+  commission totals only.
+- A corporate agent **cannot open the dashboard until an admin approves it**.
+- A migration **cannot be completed if the group leader said no**.
+- An agent **cannot edit their own Agent Code**.
+- The admin panel is **switched off** until `AGENT_ADMIN_TOKEN` is set on the
+  server (the page sends it as the `x-admin-token` header).
+
+**Env vars:**
+
+| Var | Meaning |
+|---|---|
+| `AGENT_ADMIN_TOKEN` | Shared secret for `/admin/agents.html`. Unset = the panel is closed. |
+| `AGENT_SITE_URL` | The public site used in the WhatsApp links (default `https://ajocredit.pages.dev`). |
+
+**To switch the admin panel on:** set `AGENT_ADMIN_TOKEN` on Render to a long
+random string, then paste the same string into the panel's "Admin Key" box.
+
+**WhatsApp:** the agent module records every message it prepares in
+`agent_messages` and gives the agent a `wa.me` link to send it from their own
+phone. Messages are not sent through the WhatsApp Business API yet — the
+`WHATSAPP_TOKEN` keys in the environment are not wired into this module.
+
 ## Notifications (MVP)
 
 | Channel | What goes out |

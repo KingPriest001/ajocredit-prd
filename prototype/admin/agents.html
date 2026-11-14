@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#101613">
+<link rel="icon" href="../icon.svg" type="image/svg+xml">
+<title>Agents — AJOCREDIT Admin</title>
+<link rel="stylesheet" href="../agent.css">
+</head>
+<body>
+<div class="phone">
+<div class="live">Turn your Ajo into bank credit — save with your people, build a real financial identity.</div>
+
+<div class="screen on">
+  <div class="appbar" style="padding:4px 0 0"><button class="back" onclick="history.length>1?history.back():location.href='index.html'">‹</button><b>Agent Admin</b><span style="width:34px"></span></div>
+
+  <div class="card">
+    <b>🔑 Admin Key</b>
+    <label for="tok">Admin token</label>
+    <input id="tok" type="password" placeholder="Paste your admin token">
+    <button class="btn" onclick="load()">Open the list</button>
+    <p class="note" id="tokNote">The admin panel is switched off until an admin token is set on the server.</p>
+  </div>
+
+  <div id="panel" style="display:none">
+    <div class="chips" style="grid-template-columns:repeat(3,1fr)">
+      <div class="chip on" onclick="filt('all',this)">All</div>
+      <div class="chip" onclick="filt('individual',this)">Individual</div>
+      <div class="chip" onclick="filt('corporate',this)">Corporate</div>
+    </div>
+    <div class="chips" style="grid-template-columns:repeat(3,1fr)">
+      <div class="chip on" onclick="filt('PENDING',this)">Pending</div>
+      <div class="chip" onclick="filt('ACTIVE',this)">Active</div>
+      <div class="chip" onclick="filt('SUSPENDED',this)">Suspended</div>
+    </div>
+    <button class="btn sec" onclick="exportCsv()">Export CSV</button>
+
+    <div class="card">
+      <b>👥 All Agents</b>
+      <div id="list" style="margin-top:8px"><div class="empty">Loading…</div></div>
+    </div>
+
+    <div class="card">
+      <b>💵 Commission Payout Queue</b>
+      <div id="payouts" style="margin-top:8px"><div class="empty">Loading…</div></div>
+    </div>
+  </div>
+
+  <div id="detail" style="display:none"></div>
+</div>
+</div>
+<script src="../agent.js"></script>
+<script>
+var FILTER={type:'',status:''}, AGENTS=[];
+function tok(){return document.getElementById('tok').value.trim();}
+function admApi(path,opts){
+  opts=opts||{};
+  opts.headers=Object.assign({},opts.headers||{},{'x-admin-token':tok()});
+  return AJO.api(path,opts);
+}
+function filt(v,el){
+  var chips=el.parentNode.querySelectorAll('.chip');
+  for(var i=0;i<chips.length;i++)chips[i].classList.remove('on');
+  el.classList.add('on');
+  if(FILTER.type&&['individual','corporate'].indexOf(v)>=0)FILTER.type=v;
+  else if(FILTER.status&&['PENDING','ACTIVE','SUSPENDED'].indexOf(v)>=0)FILTER.status=v;
+  else {FILTER.type='';FILTER.status='';}
+  load();
+}
+function load(){
+  var qs=[];
+  if(FILTER.type)qs.push('type='+FILTER.type);
+  if(FILTER.status)qs.push('status='+FILTER.status);
+  admApi('/api/admin/agents'+(qs.length?'?'+qs.join('&'):'')).then(function(r){
+    if(!r||!r.ok){document.getElementById('tokNote').textContent=(r&&r.body&&r.body.error)||'Could not open the list.';return;}
+    document.getElementById('tokNote').textContent='';
+    document.getElementById('panel').style.display='block';
+    AGENTS=r.body.agents||[];
+    paintList();
+    loadPayouts();
+  });
+}
+function paintList(){
+  var el=document.getElementById('list');
+  if(!AGENTS.length){el.innerHTML='<div class="empty">No agents yet.</div>';return;}
+  el.innerHTML=AGENTS.map(function(a){
+    var badge=a.status==='ACTIVE'?'green':(a.status==='PENDING'?'gold':'red');
+    return '<div class="member"><span><b>'+AJO.esc(a.organization||a.name||a.contact_name||'Agent')+'</b><br>'+
+      '<span class="note">'+AJO.esc(a.type)+' · '+AJO.esc(a.agent_code||'—')+' · '+AJO.fmtDate(a.created_at)+'</span></span>'+
+      '<span class="badge '+badge+'">'+AJO.esc(a.status)+'</span></div>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 12px">'+
+      '<button class="pillbtn" onclick="openDetail(\''+a.id+'\')">Open</button></div>';
+  }).join('');
+}
+function loadPayouts(){
+  admApi('/api/admin/commissions').then(function(r){
+    var el=document.getElementById('payouts');
+    if(!r||!r.ok||!r.body||!r.body.commissions||!r.body.commissions.length){el.innerHTML='<div class="empty">Nothing waiting to be paid.</div>';return;}
+    el.innerHTML=r.body.commissions.map(function(c){
+      return '<div class="member"><span>'+AJO.money(c.amount)+'<br><span class="note">'+AJO.esc(c.agent_code||'')+' · '+AJO.esc(c.type)+'</span></span>'+
+        '<button class="pillbtn" onclick="pay(\''+c.id+'\')">Mark Paid</button></div>';
+    }).join('');
+  });
+}
+function pay(id){
+  var ref=prompt('Payment reference (e.g. NIP transfer ref)');
+  if(ref===null)return;
+  admApi('/api/admin/commissions/'+id+'/pay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reference:ref})}).then(function(r){
+    if(r&&r.ok){AJO.toast('Marked as paid');loadPayouts();}
+    else AJO.toast((r&&r.body&&r.body.error)||'Could not mark it paid');
+  });
+}
+function openDetail(id){
+  admApi('/api/admin/agents/'+id).then(function(r){
+    if(!r||!r.ok||!r.body)return;
+    var a=r.body.agent;
+    var box=document.getElementById('detail');
+    box.style.display='block';
+    box.innerHTML='<div class="card"><div class="row"><b>'+AJO.esc(a.organization||a.name||'Agent')+'</b>'+
+      '<span class="badge '+(a.status==='ACTIVE'?'green':(a.status==='PENDING'?'gold':'red'))+'">'+AJO.esc(a.status)+'</span></div>'+
+      '<div class="note" style="margin-top:10px">'+
+      'Code: '+AJO.esc(a.agent_code||'—')+'<br>'+
+      'Organisation: '+AJO.esc(a.organization||'—')+'<br>'+
+      'CAC / RC: '+AJO.esc(a.cac_number||'—')+'<br>'+
+      'Contact: '+AJO.esc(a.contact_name||a.name||'—')+' · '+AJO.esc(a.contact_phone||a.phone||'—')+'<br>'+
+      'Email: '+AJO.esc(a.contact_email||'—')+'<br>'+
+      'Estimated members / groups: '+AJO.esc(a.estimated_members||'—')+' / '+AJO.esc(a.estimated_groups||'—')+'<br>'+
+      'Locations: '+AJO.esc(a.locations||a.market_location||'—')+'<br>'+
+      'Bank: '+AJO.esc(a.bank_name||'—')+' · '+AJO.esc(a.account_number||'—')+'<br>'+
+      'Groups: '+AJO.esc(a.groups_total||0)+' · Members: '+AJO.esc(a.members_total||0)+' · Earned: '+AJO.money(a.earned)+
+      (a.status_reason?'<br><span class="bad">Reason: '+AJO.esc(a.status_reason)+'</span>':'')+
+      '</div>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">'+
+      '<button class="pillbtn" onclick="act(\''+a.id+'\',\'approve\')">Approve</button>'+
+      '<button class="btn sec" style="width:auto;flex:1" onclick="act(\''+a.id+'\',\'needs-info\')">Need More Info</button>'+
+      '<button class="btn danger" style="width:auto;flex:1" onclick="act(\''+a.id+'\',\'reject\')">Reject</button>'+
+      '<button class="btn danger" style="width:auto;flex:1" onclick="act(\''+a.id+'\',\'suspend\')">Suspend</button>'+
+      '</div></div>'+
+      '<div class="card" id="outCard" style="display:none"><b>📤 Message to send</b><div class="tmpl pre" id="outMsg"></div>'+
+      '<button class="btn sec" onclick="AJO.copy(document.getElementById(\'outMsg\').textContent)">Copy Text</button>'+
+      '<a class="pillbtn" id="outWa" style="display:block;text-align:center;margin-top:8px" href="#" target="_blank" rel="noopener">Open WhatsApp</a></div>'+
+      '<button class="btn sec" onclick="document.getElementById(\'detail\').style.display=\'none\'">Close</button>';
+    box.scrollIntoView({behavior:'smooth'});
+  });
+}
+function act(id,action){
+  var reason='';
+  if(action==='reject'||action==='suspend'||action==='needs-info'){
+    reason=prompt('Reason (this goes into the message):')||'';
+    if(!reason){AJO.toast('A reason is required.');return;}
+  }
+  admApi('/api/admin/agents/'+id+'/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:reason})}).then(function(r){
+    if(!r||!r.ok){AJO.toast((r&&r.body&&r.body.error)||'Could not do that');return;}
+    AJO.toast('Done: '+r.body.template);
+    var card=document.getElementById('outCard');
+    if(card){
+      card.style.display='block';
+      document.getElementById('outMsg').textContent=r.body.message||'';
+      var wa=document.getElementById('outWa');
+      if(r.body.wa_link){wa.href=r.body.wa_link;wa.style.display='block';}else{wa.style.display='none';}
+      card.scrollIntoView({behavior:'smooth'});
+    }
+    load();
+  });
+}
+function exportCsv(){
+  if(!AGENTS.length){AJO.toast('Nothing to export');return;}
+  var head=['Name','Type','Code','Phone','Date Applied','Status','Groups','Members','Earned'];
+  var lines=[head.join(',')];
+  AGENTS.forEach(function(a){
+    lines.push([a.organization||a.name||a.contact_name||'',a.type,a.agent_code||'',a.contact_phone||a.phone||'',
+      AJO.fmtDate(a.created_at),a.status,a.groups_total||0,a.members_total||0,a.earned||0].map(function(v){
+        return '"'+String(v===undefined||v===null?'':v).replace(/"/g,'""')+'"';}).join(','));
+  });
+  var blob=new Blob([lines.join('\n')],{type:'text/csv'});
+  var a2=document.createElement('a');
+  a2.href=URL.createObjectURL(blob);
+  a2.download='ajocredit-agents.csv';
+  document.body.appendChild(a2);a2.click();document.body.removeChild(a2);
+  AJO.toast('CSV downloaded');
+}
+</script>
+</body>
+</html>

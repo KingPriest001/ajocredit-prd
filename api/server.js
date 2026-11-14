@@ -15,9 +15,13 @@ const path = require('path');
 const termii = require('./termii');
 // Transactional email (welcome + password reset only). Records what it tried to
 // send in email_log even when no email provider is configured yet.
+// Transactional email (welcome + password reset). Loaded here so the .env
+// loader below can fill RESEND_API_KEY / RESEND_FROM before it is used.
 const mailer = require('./mailer');
-// Web-bundle updates (Capacitor Updater): the rollout / rollback rules.
+// Web-bundle updates (Capacitor Updater): the rollout and rollback rules.
 const updater = require('./updater');
+// The agent programme: agent records, group migration, commission.
+const agent = require('./agent');
 
 // Database handle, kept at module scope so the graceful shutdown below can close it.
 let __db = null;
@@ -59,6 +63,12 @@ async function main() {
     ALTER TABLE disputes ADD COLUMN IF NOT EXISTS reference TEXT NOT NULL DEFAULT '';
     ALTER TABLE disputes ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT '';
     UPDATE groups SET invite_code='AJ-4821' WHERE id='g-aj4821' AND invite_code IS NULL;`);
+  // The agent programme: agent records, group migration and commission.
+  // This runs before `q` exists, so it talks to the driver directly.
+  await agent.installSchema({
+    exec: async (text) => { await exec(text); },
+    q: async (text, params) => (await db.query(text, params)).rows,
+  });
 
   const PORT = process.env.PORT || 4000;
   const app = express();
@@ -218,6 +228,12 @@ async function main() {
   async function announceContribution(md, ref) {
     try {
       if (!md || !md.group_id) return;
+      // An agent who brought this member in earns 1% of this contribution, and
+      // their N500 is released the first time this member pays. Nothing here
+      // moves money - it only records the commission.
+      try {
+        await agent.releaseOnFirstContribution({ q, exec }, md.membership_id, md.pot);
+      } catch (e) { console.log('agent commission failed: ' + e.message); }
       const info = await q(`SELECT g.name, g.size, cy.seq FROM groups g, cycles cy WHERE cy.id=$1 AND g.id=$2`, [md.cycle_id, md.group_id]);
       const payer = md.membership_id ? await q(`SELECT u.name FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.id=$1`, [md.membership_id]) : [];
       const paid = await q(`SELECT COUNT(*)::int AS n FROM contributions WHERE cycle_id=$1 AND status='CONFIRMED'`, [md.cycle_id]);
@@ -508,6 +524,17 @@ async function main() {
       await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id, detail) VALUES ($1,$2,$3,'user',$4,$5)`,
         [`al-${Date.now()}`, u[0].id, `otp.${rec.purpose}`, u[0].id, JSON.stringify({ purpose: rec.purpose, created: isNew })]);
       const token = await issueSession(u[0].id, device_id);
+      // A member who came through an agent's link is linked to that agent, and
+      // the agent's N500 is held until this member makes their first
+      // contribution. Nothing here touches money - it only records who brought
+      // the member in.
+      try {
+        const ref = (req.body && req.body.ref) || u[0].agent_ref;
+        if (ref) {
+          await agent.linkReferral({ q, exec }, u[0].id, norm, ref);
+          await q('UPDATE users SET agent_ref=NULL WHERE id=$1', [u[0].id]);
+        }
+      } catch (e) { console.log('agent link failed: ' + e.message); }
       // Welcome the new member by SMS - that is the channel everyone has. The email
       // welcome is dropped on purpose: many members have no email address.
       if (isNew) {
@@ -568,6 +595,17 @@ async function main() {
     }
   });
 
+  // ---- The agent programme ----------------------------------------------------
+  // Agents bring Ajo groups to AJOCREDIT and earn a commission. The rules live in
+  // api/agent.js; the agent pages are prototype/become-agent.html and friends.
+  // `exec` in the agent module takes optional parameters, so DDL and parameterised
+  // statements can both use it.
+  const agentSql = async (text, params) => (params && params.length ? q(text, params) : exec(text));
+  agent.installRoutes({
+    app, q, exec: agentSql, normPhone,
+    sendSms: (phone, text) => termii.sendSms(phone, text),
+  });
+
   // ---- Account creation, login, password reset (Task 3) --------------------
   // Signup creates the account and sends the phone code. The member is NOT verified
   // yet, so they cannot reach the dashboard until the code is entered.
@@ -598,6 +636,13 @@ async function main() {
       return res.status(500).json({ error: 'Could not create your account. Try again.' });
     }
     await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'auth.signup','user',$3)`, [`al-${Date.now()}`, uid, uid]);
+    // An agent code from a join link is remembered on the account so that the
+    // referral is recorded when the phone is verified.
+    if (req.body && req.body.ref) {
+      try {
+        await q('UPDATE users SET agent_ref=$1 WHERE id=$2', [String(req.body.ref).trim().toUpperCase().slice(0, 40), uid]);
+      } catch (e) { console.log('agent ref save failed: ' + e.message); }
+    }
     const sent = await sendOtpTo(norm, 'signup');
     if (!sent.ok) {
       return otpSendError(res, sent);

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#101613">
+<link rel="icon" href="../icon.svg" type="image/svg+xml">
+<title>Share Flyer — AJOCREDIT</title>
+<link rel="stylesheet" href="../agent.css">
+</head>
+<body>
+<div class="phone">
+<div class="live">Turn your Ajo into bank credit — save with your people, build a real financial identity.</div>
+
+<div class="screen on">
+  <div class="appbar" style="padding:4px 0 0"><button class="back" onclick="history.length>1?history.back():location.href='../agent-dashboard.html'">‹</button><b>Share Flyer</b><span style="width:34px"></span></div>
+
+  <div class="hero">
+    <div class="cap">🔗 Your Agent Link</div>
+    <div class="amt" id="linkBox" style="font-size:19px;word-break:break-all">—</div>
+    <div class="cap" style="margin-top:6px" id="agentBox">Agent: — | Code: —</div>
+    <button class="goldbtn" onclick="AJO.copy(document.getElementById('linkBox').textContent)">Copy My Link</button>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <a class="pillbtn" id="waLink" style="flex:1;text-align:center" href="#" target="_blank" rel="noopener">Share on WhatsApp</a>
+      <a class="pillbtn" style="flex:1;text-align:center" href="#flyer">Download Flyer</a>
+    </div>
+  </div>
+
+  <div class="card gold" id="flyer">
+    <div class="brand"><b>AJOCREDIT</b> by ZENONMAG CONCEPTS VENTSURES</div>
+    <h2 style="margin:6px 0">Turn your Ajo into bank credit.</h2>
+    <div class="muted" id="flyerAgent">—</div>
+    <canvas class="qr" id="qr" width="150" height="150"></canvas>
+    <p class="muted" id="flyerCode" style="text-align:center;word-break:break-all">—</p>
+    <div style="text-align:center"><span class="pillbtn">Download Flyer</span></div>
+  </div>
+
+  <div id="tmpls"></div>
+
+  <details><summary>► When do I earn?</summary><div class="detbody" id="explainer">—</div></details>
+  <details><summary>► Can I edit message?</summary><div class="detbody">Yes, you can edit the message before you send it — just keep your Agent Code and Link the same so people land on the right page.</div></details>
+
+  <div id="scripts"></div>
+</div>
+</div>
+<script src="../agent.js"></script>
+<script>
+var CODE='',LINK='',NAME='';
+AJO.requireSession(function(){
+  AJO.api('/api/agent/templates').then(function(r){
+    if(!r||!r.ok||!r.body||!r.body.ok){AJO.toast('Sign in as an agent first');return;}
+    CODE=r.body.agent_code||'';LINK=r.body.link||'';
+    AJO.api('/api/agent/me').then(function(m){
+      NAME=(m&&m.body&&m.body.agent&&(m.body.agent.name||m.body.agent.organization))||'Agent';
+      paint(r.body);
+    });
+  });
+});
+
+function paint(d){
+  document.getElementById('linkBox').textContent=LINK;
+  document.getElementById('agentBox').textContent='Agent: '+NAME+' | Code: '+CODE;
+  document.getElementById('waLink').href=AJO.waLink('Join my Ajo group on AJOCREDIT. My agent code is '+CODE+'. Join here: '+LINK);
+  document.getElementById('flyerAgent').textContent=NAME+' · '+CODE;
+  document.getElementById('flyerCode').textContent=LINK;
+  AJO.drawQR(document.getElementById('qr'),LINK);
+  document.getElementById('explainer').textContent=d.explainer||'';
+
+  var flyers=(d.templates||[]).filter(function(t){return t.channel==='flyer';});
+  var box=document.getElementById('tmpls');
+  box.innerHTML=flyers.map(function(t,i){
+    return '<div class="card"><div class="row"><b>'+AJO.esc(t.title)+'</b><span class="badge green">WhatsApp</span></div>'+
+      '<div class="tmpl pre" id="t'+i+'">'+AJO.esc(t.body)+'</div>'+
+      '<button class="btn" onclick="AJO.copy(document.getElementById(\'t'+i+'\').textContent)">Copy Text</button>'+
+      '<a class="pillbtn" style="display:block;text-align:center;margin-top:8px" href="'+AJO.waLink(t.body)+'" target="_blank" rel="noopener">Share on WhatsApp</a></div>';
+  }).join('');
+
+  var scripts=d.recruiter_scripts||[];
+  document.getElementById('scripts').innerHTML=scripts.length?
+    '<div class="card"><b>🗣 What To Say</b>'+scripts.map(function(s,i){
+      return '<details><summary>'+AJO.esc(s.title)+'</summary><div class="detbody"><div class="pre" id="s'+i+'">'+AJO.esc(s.body)+'</div>'+
+        '<button class="btn sec" onclick="AJO.copy(document.getElementById(\'s'+i+'\').textContent)">Copy Text</button></div></details>';
+    }).join('')+'</div>':'';
+}
+</script>
+</body>
+</html>

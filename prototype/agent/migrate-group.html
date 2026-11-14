@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#101613">
+<link rel="icon" href="../icon.svg" type="image/svg+xml">
+<title>Migrate a Group — AJOCREDIT</title>
+<link rel="stylesheet" href="../agent.css">
+</head>
+<body>
+<div class="phone">
+<div class="live">Turn your Ajo into bank credit — save with your people, build a real financial identity.</div>
+
+<div class="screen on">
+  <div class="appbar" style="padding:4px 0 0"><button class="back" onclick="back()">‹</button><b id="stepTitle">Migrate a Group</b><span style="width:34px"></span></div>
+
+  <div class="stepbar" id="bar"></div>
+  <p class="note" id="stepNote">Step 1 of 5 · Your draft is saved as you go.</p>
+
+  <!-- ================= STEP 1 ================= -->
+  <div class="step" id="st1">
+    <div class="card">
+      <b>Step 1 — Meet The Group Leader</b>
+      <ul class="checklist" id="c1"></ul>
+    </div>
+    <div class="card">
+      <label for="leaderName">Group Leader Name</label>
+      <input id="leaderName" placeholder="e.g. Mama Bola">
+      <label for="leaderPhone">Group Leader Phone</label>
+      <input id="leaderPhone" inputmode="tel" placeholder="08031234567">
+      <label>Group Leader agrees to move group to AJOCREDIT?</label>
+      <div class="chips">
+        <div class="chip" id="agreeYes" onclick="setAgree(true)">YES</div>
+        <div class="chip red" id="agreeNo" onclick="setAgree(false)">NO</div>
+      </div>
+    </div>
+    <div id="stopCard"></div>
+    <button class="btn" id="next1" onclick="next()">Next — Group Details</button>
+  </div>
+
+  <!-- ================= STEP 2 ================= -->
+  <div class="step" id="st2">
+    <div class="card">
+      <b>Step 2 — Confirm Group Details</b>
+      <label for="gName">Group Name</label>
+      <input id="gName" placeholder="e.g. Wuse Market Women Ajo">
+      <label for="gCount">How many members?</label>
+      <input id="gCount" inputmode="numeric" placeholder="10">
+      <label for="gAmount">Contribution Amount ₦</label>
+      <input id="gAmount" inputmode="numeric" placeholder="5000">
+      <label for="gFreq">Frequency</label>
+      <select id="gFreq"><option>Daily</option><option selected>Weekly</option><option>Monthly</option></select>
+      <label for="gDay">Meeting Day / Payout Day</label>
+      <input id="gDay" placeholder="e.g. Every Monday">
+      <label for="gLeader">Group Leader Name</label>
+      <input id="gLeader" placeholder="Name">
+      <label for="gLeaderPhone">Group Leader Phone</label>
+      <input id="gLeaderPhone" inputmode="tel" placeholder="08031234567">
+      <label>Who has collected already in this cycle?</label>
+      <input id="gCol1" placeholder="1.">
+      <input id="gCol2" placeholder="2.">
+      <input id="gCol3" placeholder="3.">
+      <label for="gNext">Who is next to collect?</label>
+      <input id="gNext" placeholder="Name">
+    </div>
+    <button class="btn" onclick="next()">Next — Add Members</button>
+  </div>
+
+  <!-- ================= STEP 3 ================= -->
+  <div class="step" id="st3">
+    <div class="card">
+      <b>Step 3 — Add Members</b>
+      <div class="row" style="margin-bottom:10px"><b>Card A — Add by Phone</b><span class="badge gold">SMS</span></div>
+      <label for="invitePhones">Phone numbers (one per line)</label>
+      <textarea id="invitePhones" rows="3" placeholder="08031234567&#10;08031234568"></textarea>
+      <button class="btn sec" onclick="sendInvites()">Send Invite</button>
+      <p class="note" id="inviteNote"></p>
+    </div>
+
+    <div class="card">
+      <div class="row" style="margin-bottom:10px"><b>Card B — Share Link + QR</b><span class="badge green">Share</span></div>
+      <p class="muted" id="groupLink" style="font-size:16px;font-weight:800;color:var(--gold);word-break:break-all">—</p>
+      <canvas class="qr" id="qr" width="150" height="150"></canvas>
+      <button class="btn sec" onclick="AJO.copy(document.getElementById('groupLink').textContent)">Copy Link</button>
+      <a class="pillbtn" id="waShare" style="display:block;text-align:center;margin-top:8px" href="#" target="_blank" rel="noopener">Share on WhatsApp</a>
+    </div>
+
+    <div class="card" id="bulkCard" style="display:none">
+      <div class="row" style="margin-bottom:10px"><b>Card C — Bulk Upload CSV</b><span class="badge gold">Corporate</span></div>
+      <p class="muted">Upload a CSV or Excel file with Name and Phone columns.</p>
+      <input id="csvFile" type="file" accept=".csv,.xlsx" style="padding:10px">
+      <div id="csvPreview"></div>
+    </div>
+
+    <div class="card">
+      <b>📊 Progress</b>
+      <div class="row" style="margin-top:8px"><span class="muted">Members Invited</span><span class="muted" id="pInvited">0 / 0</span></div>
+      <div class="row" style="margin-top:4px"><span class="muted">Members Joined</span><span class="muted" id="pJoined">0 / 0</span></div>
+      <div class="bar"><i id="pBar" style="width:0%"></i></div>
+    </div>
+
+    <button class="btn" onclick="next()">Next — First Contribution</button>
+  </div>
+
+  <!-- ================= STEP 4 ================= -->
+  <div class="step" id="st4">
+    <div class="card">
+      <b>Step 4 — Help Members Join + First Contribution</b>
+      <ul class="checklist" id="c4"></ul>
+    </div>
+    <button class="btn" onclick="next()">Mark Migration Complete</button>
+  </div>
+
+  <!-- ================= STEP 5 ================= -->
+  <div class="step" id="st5">
+    <div class="card">
+      <b>Step 5 — Close + Success</b>
+      <ul class="checklist" id="c5"></ul>
+    </div>
+    <div id="successBox"></div>
+  </div>
+
+</div>
+</div>
+<script src="../agent.js"></script>
+<script>
+var STEP=1, AGENT=null, GROUP=null, AGID=null;
+var P1=[
+ 'BEFORE YOU GO: I have my Agent Code and Agent Link ready: {LINK}',
+ 'BEFORE YOU GO: My phone is charged + I have data',
+ 'BEFORE YOU GO: I have my AJOCREDIT flyer / QR code printed or on my phone',
+ 'I greeted Group Leader: {LEADER} - Phone: {LEADERPHONE} and explained AJOCREDIT',
+ 'I explained: "AJOCREDIT is a digital Ajo by ZENONMAG CONCEPTS VENTSURES. Your group will save together in the app, collect in turn, and build credit score."',
+ 'I explained: "I will NEVER collect cash. Everybody pays inside the app only."'
+];
+var P4=[
+ 'I helped each member open the link and create AJOCREDIT account',
+ 'I helped them verify phone with OTP',
+ 'I helped them join the group with correct Contribution Amount',
+ 'Check: In app, group shows {JOINED} / {TOTAL} members joined',
+ 'I reminded group: "First contribution must be in app to activate group"',
+ 'I helped first 2-3 members make first contribution in app',
+ 'I showed Leader the group page: Members list, Turn order, Next collector',
+ 'I explained: "Your commission for me only comes after first contribution — I do not charge you anything."'
+];
+var P5=[
+ 'I took group photo (with permission) for my records',
+ 'I shared WhatsApp Group message (Template A) in their group chat',
+ 'I told Leader: "If any problem, call AJOCREDIT: +234 907 3892 436"'
+];
+var CH1={},CH4={},CH5={},AGREE=null;
+
+AJO.requireSession(function(){
+  AJO.api('/api/agent/dashboard').then(function(r){
+    if(!r||!r.ok||!r.body||!r.body.ok){AJO.toast('Sign in as an agent first');return;}
+    AGENT=r.body.agent;
+    renderChecks();
+    AJO.api('/api/agent/migrate/draft').then(function(d){
+      if(d&&d.body&&d.body.draft){restore(d.body.draft);}else{renderStep();}
+    });
+  });
+});
+
+function esc2(s){return AJO.esc(s);}
+
+function renderChecks(){
+  document.getElementById('c1').innerHTML=P1.map(function(t,i){
+    return '<li><button class="check" onclick="toggle(1,'+i+',this)">✓</button><span>'+t+
+      (t.indexOf('{LINK}')>=0?'<br><span class="note">'+esc2(AGENT?AGENT.agent_code+' — ajocredit.app/join/'+AGENT.agent_code:'')+'</span>':'')+
+      (t.indexOf('{LEADER}')>=0?'<br><span class="note">'+esc2((document.getElementById('leaderName')||{}).value||'')+'</span>':'')+
+      (t.indexOf('{LEADERPHONE}')>=0?'<br><span class="note">'+esc2((document.getElementById('leaderPhone')||{}).value||'')+'</span>':'')+
+      '</span></li>';
+  }).join('');
+  document.getElementById('c4').innerHTML=P4.map(function(t,i){
+    return '<li><button class="check" onclick="toggle(4,'+i+',this)">✓</button><span>'+t+
+      (t.indexOf('{JOINED}')>=0?'<br><span class="note">'+(JOINED||0)+' / '+(TOTAL||0)+'</span>':'')+
+      '</span></li>';
+  }).join('');
+  document.getElementById('c5').innerHTML=P5.map(function(t,i){
+    return '<li><button class="check" onclick="toggle(5,'+i+',this)">✓</button><span>'+t+'</span></li>';
+  }).join('');
+}
+
+var JOINED=0,TOTAL=0;
+
+function toggle(step,i,el){
+  el.classList.toggle('on');
+  var map = step===1?CH1:(step===4?CH4:CH5);
+  map[i]=el.classList.contains('on');
+  save();
+}
+
+function setAgree(v){
+  AGREE=v;
+  document.getElementById('agreeYes').classList.toggle('on',v===true);
+  document.getElementById('agreeNo').classList.toggle('on',v===false);
+  save();
+  renderStop();
+}
+
+function renderStop(){
+  var box=document.getElementById('stopCard');
+  if(AGREE===false){
+    box.innerHTML='<div class="card" style="border:1.5px solid var(--err)"><b class="bad">Stop — Do not force. Thank them and leave the flyer.</b>'+
+      '<p class="muted">The group leader did not agree. Leave the flyer and come back another time.</p>'+
+      '<button class="btn" onclick="location.href=\'../agent-dashboard.html\'">Back to Dashboard</button></div>';
+    document.getElementById('next1').style.display='none';
+  }else{
+    box.innerHTML='';
+    document.getElementById('next1').style.display='block';
+  }
+}
+
+function next(){
+  if(STEP===1){
+    if(AGREE!==true){AJO.toast('Did the group leader agree? Choose YES or NO first.');return;}
+    var n=P1.length, done=0; for(var k in CH1){if(CH1[k])done++;}
+    if(done<n){AJO.toast('Please tick every box before you continue.');return;}
+    STEP=2;
+  }else if(STEP===2){
+    if(!document.getElementById('gName').value.trim()){AJO.toast('Enter the group name.');return;}
+    STEP=3;
+    createGroup();
+  }else if(STEP===3){
+    STEP=4;
+    renderChecks();
+  }else if(STEP===4){
+    var n4=P4.length,d4=0;for(var k4 in CH4){if(CH4[k4])d4++;}
+    if(d4<n4){AJO.toast('Please tick every box before you continue.');return;}
+    complete();
+    return;
+  }
+  renderStep();
+  save();
+}
+
+function renderStep(){
+  [1,2,3,4,5].forEach(function(i){document.getElementById('st'+i).classList.toggle('on',i===STEP);});
+  var bar=document.getElementById('bar');
+  var h='';
+  for(var i=1;i<=5;i++)h+='<i class="'+(i<=STEP?'on':'')+'"></i>';
+  bar.innerHTML=h;
+  document.getElementById('stepTitle').textContent=['Migrate a Group','Meet The Leader','Group Details','Add Members','First Contribution','Close'][STEP]||'Migrate a Group';
+  document.getElementById('stepNote').textContent='Step '+STEP+' of 5 · Your draft is saved as you go.';
+  if(STEP===1)renderStop();
+  if(STEP===5)renderChecks();
+}
+
+function back(){if(STEP>1){STEP--;renderStep();save();}else{location.href='../agent-dashboard.html';}}
+
+function createGroup(){
+  var body={
+    name:document.getElementById('gName').value.trim(),
+    amount:Number(document.getElementById('gAmount').value)||5000,
+    size:Number(document.getElementById('gCount').value)||10,
+    frequency:document.getElementById('gFreq').value,
+    leader_name:document.getElementById('gLeader').value.trim()||document.getElementById('leaderName').value.trim(),
+    leader_phone:document.getElementById('gLeaderPhone').value.trim()||document.getElementById('leaderPhone').value.trim()
+  };
+  AJO.api('/api/agent/groups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){
+    if(r&&r.ok&&r.body&&r.body.ok){
+      GROUP=r.body;AGID=r.body.id;
+      document.getElementById('groupLink').textContent='ajocredit.app/join/'+r.body.invite_code;
+      document.getElementById('waShare').href=AJO.waLink('Join our Ajo group on AJOCREDIT. Save together, build credit. Invite code: '+r.body.invite_code+' — ajocredit.app/join/'+r.body.invite_code);
+      AJO.drawQR(document.getElementById('qr'),'ajocredit.app/join/'+r.body.invite_code);
+      TOTAL=body.size;
+      document.getElementById('pInvited').textContent='0 / '+TOTAL;
+      document.getElementById('pJoined').textContent='0 / '+TOTAL;
+      if(AGENT&&AGENT.type==='corporate')document.getElementById('bulkCard').style.display='block';
+      save();
+    }else AJO.toast((r&&r.body&&r.body.error)||'Could not create the group');
+  });
+}
+
+function sendInvites(){
+  if(!AGID){AJO.toast('Create the group first');return;}
+  var raw=document.getElementById('invitePhones').value.split(/\n|,/).map(function(s){return s.trim();}).filter(Boolean);
+  if(!raw.length){AJO.toast('Add at least one phone number');return;}
+  AJO.api('/api/agent/groups/'+AGID+'/invite',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phones:raw})}).then(function(r){
+    if(r&&r.ok&&r.body){
+      document.getElementById('inviteNote').textContent='Invited '+r.body.invited+' member(s).';
+      document.getElementById('pInvited').textContent=r.body.invited+' / '+TOTAL;
+      var pct=Math.min(100,Math.round(r.body.invited/(TOTAL||1)*100));
+      document.getElementById('pBar').style.width=pct+'%';
+      AJO.toast('Invites sent');
+    }else AJO.toast((r&&r.body&&r.body.error)||'Could not send the invites');
+  });
+}
+
+document.getElementById('csvFile').addEventListener('change',function(e){
+  var f=e.target.files&&e.target.files[0];
+  if(!f)return;
+  var rd=new FileReader();
+  rd.onload=function(){
+    var txt=String(rd.result||'');
+    var lines=txt.split(/\r?\n/).filter(function(l){return l.trim();});
+    var rows=lines.slice(0,6).map(function(l){return l.split(',');});
+    document.getElementById('csvPreview').innerHTML='<div class="tmpl pre">'+rows.map(function(r){
+      return esc2(r.join(' | '));}).join('\n')+'\n…'+(lines.length>6?('\n+'+(lines.length-6)+' more rows'):'')+'</div>';
+    var phones=[];
+    lines.slice(1).forEach(function(l){var p=l.split(',')[1];if(p&&p.trim())phones.push(p.trim());});
+    if(phones.length){document.getElementById('invitePhones').value=phones.join('\n');AJO.toast(phones.length+' phones loaded');}
+  };
+  rd.readAsText(f);
+});
+
+function complete(){
+  AJO.api('/api/agent/migrate/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    group_name:document.getElementById('gName').value.trim(),
+    amount:Number(document.getElementById('gAmount').value)||5000,
+    members_count:Number(document.getElementById('gCount').value)||10,
+    frequency:document.getElementById('gFreq').value,
+    leader_name:document.getElementById('gLeader').value.trim()||document.getElementById('leaderName').value.trim(),
+    leader_phone:document.getElementById('gLeaderPhone').value.trim()||document.getElementById('leaderPhone').value.trim(),
+    leader_agrees:true
+  })}).then(function(r){
+    if(!r||!r.ok||!r.body||!r.body.ok){AJO.toast((r&&r.body&&r.body.error)||'Could not complete the migration');return;}
+    STEP=5;renderStep();save();
+    var b=r.body;
+    document.getElementById('successBox').innerHTML=
+      '<div class="hero"><div class="cap">Migration Complete! 🎉</div><div class="amt" style="font-size:22px">'+
+      AJO.esc(document.getElementById('gName').value.trim())+'</div>'+
+      '<div class="cap" style="margin-top:6px">'+(Number(document.getElementById('gCount').value)||0)+' members · '+
+      AJO.money(Number(document.getElementById('gAmount').value)||0)+' · '+esc2(document.getElementById('gFreq').value)+'</div></div>'+
+      '<button class="btn" onclick="AJO.copy(document.getElementById(\'groupLink\').textContent)">Share in Group WhatsApp</button>'+
+      '<a class="btn sec" href="../agent-dashboard.html">Go to Agent Dashboard</a>'+
+      '<div style="text-align:center;margin:12px 0"><a class="pillbtn" href="../agent-dashboard.html">Migrate Another Group</a></div>'+
+      '<div class="card"><b>✍️ Agent Sign-Off</b><p class="muted">"I confirm this group agreed to move to AJOCREDIT and I did not collect cash."</p>'+
+      '<div class="note">Agent Name: '+esc2(AGENT?(AGENT.name||AGENT.organization):'')+'<br>'+
+      'Agent Code: '+esc2(AGENT?AGENT.agent_code:'')+'<br>'+
+      'Leader Name: '+esc2(document.getElementById('gLeader').value.trim()||document.getElementById('leaderName').value.trim())+'<br>'+
+      'Leader Signature / OTP: <span id="signOff" style="color:var(--gold)">____________</span><br>'+
+      'Date: '+new Date().toLocaleDateString('en-NG')+'</div></div>';
+  });
+}
+
+function save(){
+  AJO.api('/api/agent/migrate/draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    step:STEP,
+    payload:{ch1:CH1,ch4:CH4,ch5:CH5,agree:AGREE,leaderName:document.getElementById('leaderName').value,
+      leaderPhone:document.getElementById('leaderPhone').value,gName:document.getElementById('gName').value,
+      gCount:document.getElementById('gCount').value,gAmount:document.getElementById('gAmount').value,
+      gFreq:document.getElementById('gFreq').value,gDay:document.getElementById('gDay').value,
+      gLeader:document.getElementById('gLeader').value,gLeaderPhone:document.getElementById('gLeaderPhone').value,
+      gCol1:document.getElementById('gCol1').value,gCol2:document.getElementById('gCol2').value,
+      gCol3:document.getElementById('gCol3').value,gNext:document.getElementById('gNext').value,
+      agentGroupId:AGID,inviteCode:GROUP?GROUP.invite_code:''}
+  })});
+}
+
+function restore(d){
+  var p=d.payload||{};
+  CH1=p.ch1||{};CH4=p.ch4||{};CH5=p.ch5||{};AGREE=p.agree===undefined?null:p.agree;
+  var set=function(id,v){var e=document.getElementById(id);if(e&&v!==undefined&&v!==null)e.value=v;};
+  set('leaderName',p.leaderName);set('leaderPhone',p.leaderPhone);set('gName',p.gName);
+  set('gCount',p.gCount);set('gAmount',p.gAmount);set('gFreq',p.gFreq);set('gDay',p.gDay);
+  set('gLeader',p.gLeader);set('gLeaderPhone',p.gLeaderPhone);set('gCol1',p.gCol1);
+  set('gCol2',p.gCol2);set('gCol3',p.gCol3);set('gNext',p.gNext);
+  AGID=p.agentGroupId||null;GROUP=p.inviteCode?{invite_code:p.inviteCode}:null;
+  if(GROUP){
+    document.getElementById('groupLink').textContent='ajocredit.app/join/'+GROUP.invite_code;
+    AJO.drawQR(document.getElementById('qr'),'ajocredit.app/join/'+GROUP.invite_code);
+  }
+  STEP=d.step||1;
+  renderChecks();
+  // tick the boxes that were already done
+  [1,4,5].forEach(function(s){
+    var map=s===1?CH1:(s===4?CH4:CH5);
+    var list=document.querySelectorAll('#c'+s+' .check');
+    for(var i=0;i<list.length;i++)if(map[i])list[i].classList.add('on');
+  });
+  setAgree(AGREE===null?null:AGREE);
+  renderStep();
+}
+</script>
+</body>
+</html>
