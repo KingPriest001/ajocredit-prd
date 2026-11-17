@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#101613">
+<link rel="icon" href="../icon.svg" type="image/svg+xml">
+<title>Transactions — AJOCREDIT Admin</title>
+<link rel="stylesheet" href="../agent.css">
+<style>
+  .tx{border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:10px;background:var(--card2)}
+  .tx .hd{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:12px;color:var(--mut)}
+  .tx .amt{display:grid;grid-template-columns:1fr auto;gap:4px 8px;font-size:13px;margin-top:8px}
+  .tx .amt .lbl{color:var(--mut)}
+  .tx .amt .val{text-align:right;font-weight:700}
+  .tx .amt .pool{color:var(--green)}
+  .tx .amt .corp{color:var(--gold)}
+  .tx .amt .tot{border-top:1px dashed var(--line);padding-top:5px;margin-top:2px}
+  .totals{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+  .totals div{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:8px;text-align:center}
+  .totals b{display:block;font-size:14px}
+  .totals span{font-size:10px;color:var(--mut);display:block;margin-top:2px}
+</style>
+</head>
+<body>
+<div class="phone">
+<div class="live">Turn your Ajo into bank credit — save with your people, build a real financial identity.</div>
+
+<div class="screen on">
+  <div class="appbar" style="padding:4px 0 0"><button class="back" onclick="history.length>1?history.back():location.href='agents.html'">‹</button><b>Admin › Transactions</b><span style="width:34px"></span></div>
+
+  <div class="chips" style="grid-template-columns:repeat(3,1fr)">
+    <a class="pillbtn" style="text-align:center;text-decoration:none" href="agents.html">Agents</a>
+    <a class="pillbtn" style="text-align:center;text-decoration:none" href="company-account.html">Company Account</a>
+    <a class="chip on" style="text-align:center;text-decoration:none" href="transactions.html">Transactions</a>
+  </div>
+
+  <div class="card">
+    <b>🔑 Admin Key</b>
+    <label for="tok">Admin token</label>
+    <input id="tok" type="password" placeholder="Paste your admin token">
+    <label style="display:flex;gap:10px;align-items:center;color:var(--mut);font-size:12px;cursor:pointer;margin-top:8px">
+      <input id="tokRemember" type="checkbox" style="width:auto;margin:0" onchange="rememberKey(this)">
+      <span>Remember on this phone (only if this is your own phone)</span>
+    </label>
+    <button class="btn" onclick="load()">Open transactions</button>
+    <p class="note" id="tokNote">Every payment is shown split: contribution to the group pool, fee to the company account.</p>
+  </div>
+
+  <div id="panel" style="display:none">
+    <div class="chips" style="grid-template-columns:repeat(3,1fr)">
+      <div class="chip on" onclick="filt('status','',this)">All</div>
+      <div class="chip" onclick="filt('status','CONFIRMED',this)">Confirmed</div>
+      <div class="chip" onclick="filt('status','PENDING',this)">Pending</div>
+    </div>
+    <div class="chips" style="grid-template-columns:repeat(3,1fr)">
+      <div class="chip on" onclick="filt('gateway','',this)">Both gateways</div>
+      <div class="chip" onclick="filt('gateway','paystack',this)">Paystack</div>
+      <div class="chip" onclick="filt('gateway','flutterwave',this)">Flutterwave</div>
+    </div>
+
+    <div class="totals" id="totals"></div>
+
+    <div class="card">
+      <b>🧾 Payments — Contribution vs Fee</b>
+      <div class="note" style="margin-top:6px">Contribution → the group's pool. Fee (1% / 0.5%) → the company account. Never mixed.</div>
+      <div id="list" style="margin-top:10px"><div class="empty">Loading…</div></div>
+    </div>
+  </div>
+</div>
+</div>
+<script src="../agent.js"></script>
+<script>
+var FILTER={status:'',gateway:''}, TX=[];
+function tok(){return document.getElementById('tok').value.trim();}
+(function(){
+  try{
+    var saved=localStorage.getItem('ajo_admin_key');
+    if(saved && localStorage.getItem('ajo_admin_remember')==='1'){
+      document.getElementById('tok').value=saved;
+      var cb=document.getElementById('tokRemember');if(cb)cb.checked=true;
+    }
+  }catch(e){}
+})();
+function admApi(path,opts){
+  opts=opts||{};
+  opts.headers=Object.assign({},opts.headers||{},{'x-admin-token':tok()});
+  return AJO.api(path,opts);
+}
+function rememberKey(cb){
+  try{
+    if(cb.checked){localStorage.setItem('ajo_admin_key',tok());localStorage.setItem('ajo_admin_remember','1');}
+    else{localStorage.removeItem('ajo_admin_key');localStorage.removeItem('ajo_admin_remember');}
+  }catch(e){}
+}
+function filt(key,v,el){
+  var chips=el.parentNode.querySelectorAll('.chip');
+  for(var i=0;i<chips.length;i++)chips[i].classList.remove('on');
+  el.classList.add('on');
+  FILTER[key]=v;
+  load();
+}
+function load(){
+  var qs=[];
+  if(FILTER.status)qs.push('status='+FILTER.status);
+  if(FILTER.gateway)qs.push('gateway='+FILTER.gateway);
+  admApi('/api/admin/transactions'+(qs.length?'?'+qs.join('&'):'')).then(function(r){
+    if(!r||!r.ok){document.getElementById('tokNote').textContent=(r&&r.body&&r.body.error)||'Could not open transactions.';return;}
+    document.getElementById('tokNote').textContent='Signed in with the admin key.';
+    document.getElementById('panel').style.display='block';
+    TX=r.body.transactions||[];
+    var t=r.body.totals||{};
+    document.getElementById('totals').innerHTML=
+      '<div><b>'+AJO.money(t.contributions||0)+'</b><span>Contributions → pools</span></div>'+
+      '<div><b>'+AJO.money(t.fees||0)+'</b><span>Fees → company</span></div>'+
+      '<div><b>'+AJO.money(t.total||0)+'</b><span>Total ('+(t.count||0)+' payments)</span></div>';
+    paint();
+  });
+}
+function paint(){
+  var el=document.getElementById('list');
+  if(!TX.length){el.innerHTML='<div class="empty">No transactions yet.</div>';return;}
+  el.innerHTML=TX.map(function(t){
+    var badge=t.status==='CONFIRMED'?'green':(t.status==='PENDING'?'gold':'red');
+    return '<div class="tx">'+
+      '<div class="hd"><b>'+AJO.esc(t.reference||t.transaction_id||'—')+'</b><span class="badge '+badge+'">'+AJO.esc(t.status)+'</span></div>'+
+      '<div class="hd" style="margin-top:4px">'+AJO.fmtDate(t.created_at)+' · '+AJO.esc(t.gateway||'—')+' · '+AJO.esc(t.mode||'—')+'</div>'+
+      '<div class="amt">'+
+        '<span class="lbl">💰 Contribution <span class="muted">→ group pool</span></span><span class="val pool">'+AJO.money(t.contribution_amount)+'</span>'+
+        '<span class="lbl">✂️ Fee <span class="muted">→ company account</span></span><span class="val corp">'+AJO.money(t.fee_amount)+'</span>'+
+        '<span class="lbl tot">Total charged</span><span class="val tot">'+AJO.money(t.total_amount)+'</span>'+
+      '</div>'+
+      '<div class="note" style="margin-top:6px">Pool: '+AJO.esc(t.contribution_destination||'—')+' · Company: '+AJO.esc(t.fee_destination||'—')+'</div>'+
+      '</div>';
+  }).join('');
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#101613">
+<link rel="icon" href="../icon.svg" type="image/svg+xml">
+<title>Settings › Company Account — AJOCREDIT Admin</title>
+<link rel="stylesheet" href="../agent.css">
+<style>
+  .kv{display:grid;grid-template-columns:1fr auto;gap:6px 10px;font-size:13px;margin-top:8px}
+  .kv span:first-child{color:var(--mut)}
+  .kv span:last-child{text-align:right;font-weight:700}
+  .splitline{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:7px 0;border-bottom:1px dashed var(--line)}
+  .splitline:last-child{border-bottom:0}
+  .splitline .to{color:var(--gold);font-weight:700}
+</style>
+</head>
+<body>
+<div class="phone">
+<div class="live">Turn your Ajo into bank credit — save with your people, build a real financial identity.</div>
+
+<div class="screen on">
+  <div class="appbar" style="padding:4px 0 0"><button class="back" onclick="history.length>1?history.back():location.href='agents.html'">‹</button><b>Admin › Settings › Company Account</b><span style="width:34px"></span></div>
+
+  <div class="chips" style="grid-template-columns:repeat(3,1fr)">
+    <a class="pillbtn" style="text-align:center;text-decoration:none" href="agents.html">Agents</a>
+    <a class="chip on" style="text-align:center;text-decoration:none" href="company-account.html">Company Account</a>
+    <a class="pillbtn" style="text-align:center;text-decoration:none" href="transactions.html">Transactions</a>
+  </div>
+
+  <div class="card">
+    <b>🔑 Admin Key</b>
+    <label for="tok">Admin token</label>
+    <input id="tok" type="password" placeholder="Paste your admin token">
+    <label style="display:flex;gap:10px;align-items:center;color:var(--mut);font-size:12px;cursor:pointer;margin-top:8px">
+      <input id="tokRemember" type="checkbox" style="width:auto;margin:0" onchange="rememberKey(this)">
+      <span>Remember on this phone (only if this is your own phone)</span>
+    </label>
+    <button class="btn" onclick="load()">Open the company account</button>
+    <p class="note" id="tokNote">Every contribution fee on AJOCREDIT is paid into this account.</p>
+  </div>
+
+  <div id="panel" style="display:none">
+    <div class="card">
+      <b>🏦 Company account <span class="badge gold">receives every fee</span></b>
+      <div class="note" style="margin-top:6px">Contributions go to each group's pool. Only the platform fee (1% up to ₦10,000, 0.5% above) lands here.</div>
+      <div class="kv" id="accKv">Loading…</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">
+        <button class="pillbtn" onclick="editAcc()">Edit bank details</button>
+        <button class="pillbtn" onclick="regSub('paystack')">Register Paystack subaccount</button>
+        <button class="pillbtn" onclick="regSub('flutterwave')">Register Flutterwave subaccount</button>
+      </div>
+      <p class="note" id="accMsg"></p>
+    </div>
+
+    <div class="card">
+      <b>✂️ How the split is paid</b>
+      <div class="splitline"><span>Contribution (₦10,000 or less)</span><span class="to">99% → group pool</span></div>
+      <div class="splitline"><span>Fee (1%)</span><span class="to">1% → company account</span></div>
+      <div class="splitline"><span>Contribution (above ₦10,000)</span><span class="to">99.5% → group pool</span></div>
+      <div class="splitline"><span>Fee (0.5%)</span><span class="to">0.5% → company account</span></div>
+      <div class="note" style="margin-top:6px">If the split cannot be set up with the gateway, the payment fails — money never lands in the wrong place.</div>
+    </div>
+
+    <div class="card">
+      <b>🔌 Gateway status</b>
+      <div id="gw" style="margin-top:8px"><div class="empty">Loading…</div></div>
+    </div>
+  </div>
+</div>
+</div>
+<script src="../agent.js"></script>
+<script>
+var ACC=null, GW=null;
+function tok(){return document.getElementById('tok').value.trim();}
+(function(){
+  try{
+    var saved=localStorage.getItem('ajo_admin_key');
+    if(saved && localStorage.getItem('ajo_admin_remember')==='1'){
+      document.getElementById('tok').value=saved;
+      var cb=document.getElementById('tokRemember');if(cb)cb.checked=true;
+    }
+  }catch(e){}
+})();
+function admApi(path,opts){
+  opts=opts||{};
+  opts.headers=Object.assign({},opts.headers||{},{'x-admin-token':tok()});
+  return AJO.api(path,opts);
+}
+function rememberKey(cb){
+  try{
+    if(cb.checked){localStorage.setItem('ajo_admin_key',tok());localStorage.setItem('ajo_admin_remember','1');}
+    else{localStorage.removeItem('ajo_admin_key');localStorage.removeItem('ajo_admin_remember');}
+  }catch(e){}
+}
+function load(){
+  admApi('/api/admin/company-account').then(function(r){
+    if(!r||!r.ok){document.getElementById('tokNote').textContent=(r&&r.body&&r.body.error)||'Could not open the company account.';return;}
+    document.getElementById('tokNote').textContent='Signed in with the admin key.';
+    document.getElementById('panel').style.display='block';
+    ACC=r.body.company_account||{};
+    GW=r.body.gateways||{};
+    paintAcc(); paintGw();
+  });
+}
+function paintAcc(){
+  var a=ACC||{};
+  document.getElementById('accKv').innerHTML=
+    row('Bank', a.bank_name||'—')+
+    row('Account number', a.account_number||'—')+
+    row('Account name', a.account_name||'—')+
+    row('Bank code', a.bank_code||'—')+
+    row('Paystack subaccount', a.paystack_subaccount_code||'not registered')+
+    row('Flutterwave subaccount', a.flutterwave_subaccount_id||'not registered')+
+    row('Transfers enabled', a.transfer_enabled?'Yes':'No')+
+    row('Updated', AJO.fmtDate(a.updated_at));
+}
+function row(k,v){return '<span>'+AJO.esc(k)+'</span><span>'+AJO.esc(String(v))+'</span>';}
+function paintGw(){
+  function line(name,g){
+    var bits=[];
+    bits.push(g.configured?'<span class="badge green">keys set</span>':'<span class="badge red">no keys</span>');
+    if(name==='paystack') bits.push(g.live?'<span class="badge gold">LIVE</span>':'<span class="badge">test mode</span>');
+    bits.push(g.subaccount_code||g.subaccount_id?'<span class="badge green">subaccount</span>':'<span class="badge">no subaccount</span>');
+    if(g.transfer) bits.push('<span class="badge green">transfer on</span>');
+    return '<div class="member"><span><b>'+AJO.esc(name==='paystack'?'Paystack':'Flutterwave')+'</b><br>'+
+      '<span class="note">'+AJO.esc(g.subaccount_code||g.subaccount_id||'No split subaccount registered yet')+'</span></span>'+
+      '<span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">'+bits.join(' ')+'</span></div>';
+  }
+  document.getElementById('gw').innerHTML=line('paystack',GW.paystack||{})+line('flutterwave',GW.flutterwave||{});
+}
+function editAcc(){
+  var a=ACC||{};
+  var bank=prompt('Bank name (e.g. GTBANK)', a.bank_name||''); if(bank===null)return;
+  var num=prompt('Account number', a.account_number||''); if(num===null)return;
+  var nam=prompt('Account name', a.account_name||''); if(nam===null)return;
+  var code=prompt('Bank code (e.g. 058 for GTBANK)', a.bank_code||''); if(code===null)return;
+  admApi('/api/admin/company-account',{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({bank_name:bank,account_number:num,account_name:nam,bank_code:code})}).then(function(r){
+    if(r&&r.ok){AJO.toast('Company account updated');load();}
+    else AJO.toast((r&&r.body&&r.body.error)||'Could not save');
+  });
+}
+function regSub(gw){
+  var a=ACC||{};
+  var cur=gw==='paystack'?(a.paystack_subaccount_code||''):(a.flutterwave_subaccount_id||'');
+  var code=prompt('Gateway subaccount '+(gw==='paystack'?'code':'id')+' for the company account', cur);
+  if(code===null)return;
+  admApi('/api/admin/company-account/subaccount',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({gateway:gw,code:code,transfer:true})}).then(function(r){
+    if(r&&r.ok){AJO.toast('Subaccount registered');load();}
+    else AJO.toast((r&&r.body&&r.body.error)||'Could not register');
+  });
+}
+</script>
+</body>
+</html>
