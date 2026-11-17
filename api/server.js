@@ -22,6 +22,9 @@ const mailer = require('./mailer');
 const updater = require('./updater');
 // The agent programme: agent records, group migration, commission.
 const agent = require('./agent');
+// Money routing: the company fee account, the group pools and the split.
+const money = require('./money');
+const moneyRoutes = require('./money-routes');
 
 // Database handle, kept at module scope so the graceful shutdown below can close it.
 let __db = null;
@@ -62,10 +65,18 @@ async function main() {
     ALTER TABLE groups ADD COLUMN IF NOT EXISTS invite_code TEXT;
     ALTER TABLE disputes ADD COLUMN IF NOT EXISTS reference TEXT NOT NULL DEFAULT '';
     ALTER TABLE disputes ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT '';
-    UPDATE groups SET invite_code='AJ-4821' WHERE id='g-aj4821' AND invite_code IS NULL;`);
+    UPDATE groups SET invite_code='AJ-4821' WHERE id='g-aj4821' AND invite_code IS NULL;
+    ALTER TABLE contributions ALTER COLUMN fee TYPE NUMERIC USING fee::NUMERIC;
+    ALTER TABLE contributions ALTER COLUMN total TYPE NUMERIC USING total::NUMERIC;
+    ALTER TABLE ledger_entries ALTER COLUMN amount TYPE NUMERIC USING amount::NUMERIC;`);
   // The agent programme: agent records, group migration and commission.
   // This runs before `q` exists, so it talks to the driver directly.
   await agent.installSchema({
+    exec: async (text) => { await exec(text); },
+    q: async (text, params) => (await db.query(text, params)).rows,
+  });
+  // The company fee account, the group pools and the payment ledger.
+  await moneyRoutes.installSchema({
     exec: async (text) => { await exec(text); },
     q: async (text, params) => (await db.query(text, params)).rows,
   });
@@ -85,9 +96,11 @@ async function main() {
     const h = crypto.createHash('sha256').update(String(ref) + Date.now()).digest('hex').slice(0, 16);
     const h2 = crypto.createHash('sha256').update('fee:' + String(ref) + Date.now()).digest('hex').slice(0, 16);
     const fee = Math.max(0, Number(md.fee) || 0);
+    const pot = Number(md.pot) || 0;
+    const total = Math.round((pot + fee) * 100) / 100;
     await db.query(`INSERT INTO contributions (id, membership_id, cycle_id, amount, fee, total, method, reference, status)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'CONFIRMED') ON CONFLICT (reference) DO NOTHING`,
-      [`ct-${Date.now()}`, md.membership_id, md.cycle_id, md.pot, md.fee, md.pot + md.fee, method, ref]);
+      [`ct-${Date.now()}`, md.membership_id, md.cycle_id, pot, fee, total, method, ref]);
     await db.query(`INSERT INTO ledger_entries (id, group_id, debit_acct, credit_acct, amount, type, ref_id, idempotency_key, status, hash)
       VALUES ($1,$2,$3,$4,$5,'contribution',$6,$7,'CONFIRMED',$8) ON CONFLICT (idempotency_key) DO NOTHING`,
       [`le-${Date.now()}`, md.group_id, `psp:${method}`, `pot:${md.group_id}`, md.pot, ref, `webhook:${ref}`, h]);
@@ -103,11 +116,121 @@ async function main() {
   }
   const q = (t, p) => db.query(t, p).then((r) => r.rows);
 
+  // ---- Split payments: where each naira goes --------------------------------
+  // Two streams that must never mix:
+  //   the contribution goes to the group's pool, the fee goes to the company.
+  // api/money.js decides; this is only the gateway plumbing.
+  const moneyQ = async (text, params) => (params && params.length ? q(text, params) : exec(text));
+  const moneyDb = { q, exec: moneyQ };
+
+  async function routingPlan(groupId, amount, fee, gateway) {
+    return money.plan(moneyDb, { groupId, amount, fee, gateway });
+  }
+
+  // Paystack splits are percentage based, so one split is created per exact
+  // ratio and then reused. A group where everybody contributes the same amount
+  // therefore needs exactly one split, not one per payment.
+  async function ensurePaystackSplit(groupId, p) {
+    const ratioKey = p.groupShare.toFixed(4);
+    const ex = await q('SELECT * FROM paystack_splits WHERE group_id=$1 AND ratio_key=$2', [groupId, ratioKey]);
+    if (ex.length) return ex[0].split_code;
+    const r = await fetch('https://api.paystack.co/split', {
+      method: 'POST', headers: PS_HDR(), signal: AbortSignal.timeout(20000),
+      body: JSON.stringify({
+        name: money.paystackSplitName(groupId, ratioKey),
+        type: 'percentage',
+        currency: 'NGN',
+        subaccounts: money.paystackSubaccounts(p),
+      }),
+    });
+    const j = await r.json();
+    if (!j.status) throw new Error('Paystack could not set up the split: ' + (j.message || 'unknown error'));
+    const code = j.data.split_code;
+    await q('INSERT INTO paystack_splits (id, group_id, ratio_key, split_code, tier_index) VALUES ($1,$2,$3,$4,$5)',
+      [`ps-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`, groupId, ratioKey, code, money.tierIndexForAmount(p.amount)]);
+    return code;
+  }
+
+  // The two-step fallback: the gateway could not split the payment, so the fee
+  // is moved to the company account straight after the charge. If the transfer
+  // fails the whole payment fails - we never take money we cannot place.
+  async function transferFee(p, reference) {
+    if (!p || !p.company || !p.company.account_number) return { ok: false, error: 'no company account' };
+    if (p.gateway === 'paystack') {
+      if (!p.company.subaccount) return { ok: false, error: 'no company subaccount' };
+      const r = await fetch('https://api.paystack.co/transfer', {
+        method: 'POST', headers: PS_HDR(), signal: AbortSignal.timeout(20000),
+        body: JSON.stringify({
+          amount: Math.round(p.fee * 100), recipient: p.company.subaccount,
+          reason: 'AJOCREDIT contribution fee', reference: 'FEE-' + reference,
+        }),
+      });
+      const j = await r.json();
+      if (!j.status) return { ok: false, error: j.message || 'paystack transfer failed' };
+      return { ok: true, transfer: j.data };
+    }
+    if (!p.company.subaccount) return { ok: false, error: 'no company subaccount' };
+    const r = await fetch('https://api.flutterwave.com/v3/transfers', {
+      method: 'POST', headers: FLW_HDR(), signal: AbortSignal.timeout(20000),
+      body: JSON.stringify({
+        amount: Math.round(p.fee * 100), destination: String(p.company.subaccount),
+        reference: 'FEE-' + reference, reason: 'AJOCREDIT contribution fee',
+      }),
+    });
+    const j = await r.json();
+    if (j.status !== 'success') return { ok: false, error: j.message || 'flutterwave transfer failed' };
+    return { ok: true, transfer: j.data };
+  }
+
+  // Contribution fee: flat 1% up to ₦10,000, 0.5% above it. Exactly ₦10,000
+  // is still 1% (the boundary is inclusive), ₦10,001 and up drop to 0.5%.
+  // The fee is rounded to the nearest kobo (2 decimal places).
   function feeFor(amount) {
-    let rate = 0.01;
-    if (amount < 10000) rate = 0.015;
-    else if (amount > 100000) rate = 0.0075;
-    return { fee: Math.round(amount * rate), total: amount + Math.round(amount * rate) };
+    const rate = amount <= 10000 ? 0.01 : 0.005;
+    const fee = Math.round(amount * rate * 100) / 100;
+    return { fee, total: Math.round((amount + fee) * 100) / 100, rate };
+  }
+
+  // One row per payment in the transactions ledger, showing exactly where each
+  // naira went. The reconciliation sheet the admin reads.
+  async function recordPaymentTx(plan, groupId, memberId, reference, gateway, status) {
+    try {
+      await money.recordTransaction(moneyDb, {
+        reference, group_id: groupId, member_id: memberId,
+        contribution_amount: plan.amount, fee_amount: plan.fee, total_amount: plan.total,
+        contribution_destination: plan.pool ? plan.pool.label : 'pool:unconfigured',
+        fee_destination: plan.company ? plan.company.label : 'company:unconfigured',
+        gateway, mode: plan.mode, status: status || 'PENDING',
+      });
+    } catch (e) { console.log('transaction record failed: ' + e.message); }
+  }
+
+  // The payment was confirmed by the gateway: mark the transaction confirmed
+  // and, in two-step mode, move the fee to the company account now.
+  async function confirmPaymentTx(reference, gateway) {
+    try {
+      const rows = await q('SELECT * FROM transactions WHERE reference=$1 ORDER BY created_at DESC LIMIT 1', [reference]);
+      if (!rows.length) return null;
+      const t = rows[0];
+      if (t.status === 'CONFIRMED') return t;
+      if (t.mode === 'two_step' && Number(t.fee_amount) > 0) {
+        const plan = await routingPlan(t.group_id, Number(t.contribution_amount), Number(t.fee_amount), gateway);
+        const tr = await transferFee(plan, reference);
+        if (!tr.ok) {
+          // The fee could not be placed. The contribution is NOT confirmed.
+          await q('UPDATE transactions SET status=$1 WHERE id=$2', ['SPLIT_FAILED', t.id]);
+          await q('UPDATE contributions SET status=$1 WHERE reference=$2', ['FAILED', reference]);
+          await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'payment.split_failed','transaction',$3)`,
+            [`al-${Date.now()}`, gateway, t.id]);
+          throw new Error('the fee could not be moved to the company account: ' + tr.error);
+        }
+      }
+      await q('UPDATE transactions SET status=$1 WHERE id=$2', ['CONFIRMED', t.id]);
+      return t;
+    } catch (e) {
+      console.log('payment confirm failed: ' + e.message);
+      throw e;
+    }
   }
   function tierFor(s) { return s >= 800 ? 'Platinum' : s >= 600 ? 'Gold' : s >= 350 ? 'Silver' : 'Bronze'; }
   function normPhone(p) {
@@ -604,8 +727,21 @@ async function main() {
   agent.installRoutes({
     app, q, exec: agentSql, normPhone,
     sendSms: (phone, text) => termii.sendSms(phone, text),
+    ensurePool: moneyRoutes.ensurePool,
   });
 
+  // ---- Company account, group pools, transactions ----------------------------
+  // The company account receives EVERY fee. A group pool receives the group's
+  // contributions. The two never mix - api/money.js is the only place that
+  // decides where money goes.
+  const moneySql = async (text, params) => (params && params.length ? q(text, params) : exec(text));
+  const moneyCtx = {
+    app, q, exec: moneySql, normPhone, bindPhone,
+    requireAdmin: agent.requireAdmin,
+    requireSession: agent.makeRequireSession({ q }),
+    ensurePool: moneyRoutes.ensurePool,
+  };
+  moneyRoutes.installRoutes(moneyCtx);
   // ---- Account creation, login, password reset (Task 3) --------------------
   // Signup creates the account and sends the phone code. The member is NOT verified
   // yet, so they cannot reach the dashboard until the code is entered.
@@ -884,33 +1020,64 @@ async function main() {
     const meta = { group_id, membership_id, cycle_id, pot: amount, fee };
     const destination = g[0].dest_verified ? { bank: g[0].dest_bank_code, account: '••' + String(g[0].dest_account_number).slice(-4), name: g[0].dest_account_name } : null;
     if (!destination) return res.status(422).json({ ok: false, error: 'Payout account not linked yet — ask your admin to verify it before contributing.' });
+    // Where the money goes: the contribution to the group's pool, the fee to the
+    // company account. The two never mix - api/money.js decides and the
+    // assert below refuses to go ahead if they could.
+    const plan = await routingPlan(group_id, amount, fee, 'flutterwave');
+    money.assertNoMixing(plan);
     // Primary: Flutterwave hosted checkout link (v3 /payments). Backup: Paystack inline config.
     // 20s cap on PSP calls: a hanging PSP must never wedge the client past its own timeout.
     try {
+      const flwBody = {
+        tx_ref: reference, amount: total, currency: 'NGN',
+        redirect_url: (process.env.FRONTEND_URL || 'https://ajocredit.pages.dev').replace(/\/$/, ''),
+        customer: { email: email || 'member@ajocredit.ng', name: 'Ajo Member' },
+        meta: meta, customizations: { title: 'AJOCREDIT Contribution' },
+      };
+      // If the group has a verified pool subaccount, the payment is split at the
+      // gateway: the contribution lands in the group pool, the fee in the
+      // company account.
+      const flwSplit = plan.gateway === 'flutterwave' ? money.flutterwaveInit(plan) : null;
+      if (flwSplit) flwBody.subaccounts = flwSplit.subaccounts;
       const r = await fetch('https://api.flutterwave.com/v3/payments', {
         method: 'POST', headers: FLW_HDR(), signal: AbortSignal.timeout(20000),
-        body: JSON.stringify({ tx_ref: reference, amount: total, currency: 'NGN',
-          redirect_url: (process.env.FRONTEND_URL || 'https://ajocredit.pages.dev').replace(/\/$/, ''),
-          customer: { email: email || 'member@ajocredit.ng', name: 'Ajo Member' },
-          meta: meta, customizations: { title: 'AJOCREDIT Contribution' } }),
+        body: JSON.stringify(flwBody),
       });
       const j = await r.json();
       if (j.status === 'success' && j.data && j.data.link) {
+        await recordPaymentTx(plan, group_id, membership_id, reference, 'flutterwave', 'PENDING');
         return res.json({ ok: true, provider: 'flutterwave', link: j.data.link, reference,
-          mode: PAYS_MODE, amount, fee, total, destination });
+          mode: PAYS_MODE, amount, fee, total, destination, split_mode: plan.mode });
       }
-      throw new Error('flutterwave link failed');
+      throw new Error('flutterwave link failed: ' + (j.message || 'unknown'));
     } catch (e) {
+      // A split that the gateway refused is a hard stop: no charge, and the
+      // contribution is not marked paid.
+      if (/split/i.test(String(e && e.message))) {
+        return res.status(502).json({ ok: false, error: 'We could not set up the payment split for this group, so no money was taken. Please try again or tell your group admin.' });
+      }
       // Fall back to Paystack ONLY when its key is live. A test key (pk_test_) must never be
       // handed to a real member: they'd be sent to a checkout that can't take real money, and a
       // test-mode webhook could confirm a contribution with no money behind it. Once
       // PAYSTACK_PUBLIC_KEY is switched to pk_live_ this backup activates automatically.
       const pk = process.env.PAYSTACK_PUBLIC_KEY || '';
       if (pk.startsWith('pk_live_')) {
-        return res.json({ ok: true, provider: 'paystack', mode: PAYS_MODE, amount, fee, total, amount_kobo: total * 100,
-          paystack_key: pk,
-          reference: `${group_id.slice(0, 8)}-C${cycle_id.slice(-2)}-${Date.now()}`,
-          destination, metadata: meta });
+        const psPlan = await routingPlan(group_id, amount, fee, 'paystack');
+        money.assertNoMixing(psPlan);
+        let splitCode = null;
+        if (psPlan.mode === 'split') {
+          try { splitCode = await ensurePaystackSplit(group_id, psPlan); }
+          catch (se) {
+            return res.status(502).json({ ok: false, error: 'We could not set up the payment split for this group, so no money was taken. Please try again or tell your group admin.' });
+          }
+        }
+        const psRef = `${group_id.slice(0, 8)}-C${cycle_id.slice(-2)}-${Date.now()}`;
+        const psInit = money.paystackInit(psPlan, splitCode);
+        await recordPaymentTx(psPlan, group_id, membership_id, psRef, 'paystack', 'PENDING');
+        return res.json({ ok: true, provider: 'paystack', mode: PAYS_MODE, amount, fee, total, amount_kobo: Math.round(total * 100),
+          paystack_key: pk, split_code: psInit ? psInit.split_code : undefined,
+          subaccount: psInit ? psInit.subaccount : undefined,
+          reference: psRef, destination, metadata: meta, split_mode: psPlan.mode });
       }
       // Flutterwave hiccup while Paystack isn't live yet: fail cleanly, never silently downgrade.
       return res.json({ ok: false, error: 'Payment provider is busy — no charge was made. Please try again in a moment.' });
@@ -927,8 +1094,15 @@ async function main() {
     const md = data.meta || data.metadata || {};
     const ref = data.tx_ref || data.txRef || '';
     try {
-      if (ok && ref) { await confirmContribution(md, ref, 'flutterwave'); res.json({ ok: true, confirmed: ref }); }
-      else { await db.query(`UPDATE contributions SET status='FAILED' WHERE reference=$1`, [ref]); res.json({ ok: true, marked_failed: ref }); }
+      if (ok && ref) {
+        // The money is confirmed: mark the transaction confirmed (and move the
+        // fee to the company account in two-step mode) BEFORE the contribution
+        // is booked as paid.
+        await confirmPaymentTx(ref, 'flutterwave');
+        await confirmContribution(md, ref, 'flutterwave');
+        res.json({ ok: true, confirmed: ref });
+      }
+      else { await db.query(`UPDATE contributions SET status='FAILED' WHERE reference=$1`, [ref]); await q('UPDATE transactions SET status=$1 WHERE reference=$2', ['FAILED', ref]); res.json({ ok: true, marked_failed: ref }); }
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
   app.get('/api/payments/status/:reference', async (req, res) => {
@@ -947,10 +1121,12 @@ async function main() {
       const lh = crypto.createHmac('sha256', PSK() || 'ajocredit').update(String(ref)).digest('hex').slice(0, 16);
       const lh2 = crypto.createHmac('sha256', (PSK() || 'ajocredit') + 'fee').update(String(ref)).digest('hex').slice(0, 16);
       const pfee = Math.max(0, Number(md.fee) || 0);
+      const ppot = Number(md.pot) || 0;
+      const ptotal = Math.round((ppot + pfee) * 100) / 100;
       try {
         await db.query(`INSERT INTO contributions (id, membership_id, cycle_id, amount, fee, total, method, reference, status)
           VALUES ($1,$2,$3,$4,$5,$6,'paystack',$7,'CONFIRMED') ON CONFLICT (reference) DO NOTHING`,
-          [`ct-${Date.now()}`, md.membership_id, md.cycle_id, md.pot, md.fee, md.pot + md.fee, ref]);
+          [`ct-${Date.now()}`, md.membership_id, md.cycle_id, ppot, pfee, ptotal, ref]);
         await db.query(`INSERT INTO ledger_entries (id, group_id, debit_acct, credit_acct, amount, type, ref_id, idempotency_key, status, hash)
           VALUES ($1,$2,'psp:paystack',$3,$4,'contribution',$5,$6,'CONFIRMED',$7) ON CONFLICT (idempotency_key) DO NOTHING`,
           [`le-${Date.now()}`, md.group_id, `pot:${md.group_id}`, md.pot, ref, `webhook:${ref}`, lh]);
@@ -960,12 +1136,21 @@ async function main() {
             [`le-${Date.now()}f`, md.group_id, `member:${md.membership_id || 'unknown'}`, `revenue:ajocredit-fees`, pfee, ref, `webhook:${ref}:fee`, lh2]);
         }
         await db.query(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,'paystack','webhook.confirm','contribution',$2)`, [`al-${Date.now()}`, ref]);
+        // The money is confirmed: mark the transaction confirmed (and in two-step
+        // mode move the fee to the company account). If the fee cannot be placed
+        // the contribution is NOT marked paid.
+        try { await confirmPaymentTx(ref, 'paystack'); }
+        catch (ce) {
+          await db.query(`UPDATE contributions SET status='FAILED' WHERE reference=$1`, [ref]);
+          return res.status(500).json({ ok: false, error: ce.message });
+        }
         res.json({ ok: true, confirmed: ref });
       } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
     } else if (ev.event === 'charge.failed') {
       const ref = ev.data?.reference || '';
       try {
         await db.query(`UPDATE contributions SET status='FAILED' WHERE reference=$1`, [ref]);
+        await q('UPDATE transactions SET status=$1 WHERE reference=$2', ['FAILED', ref]);
         await db.query(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,'paystack','webhook.fail','contribution',$2)`, [`al-${Date.now()}`, ref]);
         res.json({ ok: true, marked_failed: ref });
       } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
@@ -1003,6 +1188,8 @@ async function main() {
       }
       const gid = `g-${now}`;
       const icode = await newInviteCode();
+    // Every group gets its own pool wallet - this is where its contributions land.
+    await moneyRoutes.ensurePool({ q }, gid);
       await q(`INSERT INTO groups (id, name, type, amount, size, frequency, payout_mode, status, rules, invite_code) VALUES ($1,$2,'ROTATIONAL',$3,$4,$5,$6,'FORMING','{\"grace_hours\":48}',$7)`,
         [gid, String(name).trim(), +amount, nsize, frequency || 'Weekly', payout_mode || 'random', icode]);
       await q(`INSERT INTO memberships (id, user_id, group_id, role, status) VALUES ($1,$2,$3,'admin','ACTIVE')`, [`m-${now}`, u[0].id, gid]);

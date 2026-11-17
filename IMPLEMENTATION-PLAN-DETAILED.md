@@ -52,7 +52,7 @@ Weights v1.0 + norms + thin-file + confidence; decay + history + audit; ITI/GTI 
 
 ## PHASE 5 — QA + Non-Functionals (continuous + Wk 9-12 gate)
 
-Unit Jest ≥80% (OTP, fee ₦20k+₦200, order freeze, grace→default); contract Supertest/Pact + 4xx/409; ledger property (balanced, 10x replay→1 confirmed, only confirmed mutates); E2E Playwright (happy, shortfall block, dup payout→single transfer, refund variants); UAT 2→20 groups (Aunty Bola 10×₦10-50k, EN+Pidgin scripts, WhatsApp log); chaos (double webhook, PSP down→failover, wrong amount→suspense, NIBSS mismatch).
+Unit Jest ≥80% (OTP, fee ₦20k+₦100 / ₦10,001+₦50.01 boundaries, order freeze, grace→default); contract Supertest/Pact + 4xx/409; ledger property (balanced, 10x replay→1 confirmed, only confirmed mutates); E2E Playwright (happy, shortfall block, dup payout→single transfer, refund variants); UAT 2→20 groups (Aunty Bola 10×₦10-50k, EN+Pidgin scripts, WhatsApp log); chaos (double webhook, PSP down→failover, wrong amount→suspense, NIBSS mismatch).
 NFRs: p95 API <300ms (p99 <800ms), webhook→confirmed <5min p95, unmatched <5%, payout <24h ≥98%, uptime 99.5%, RPO <15m RTO <2h, offline queue idempotent, OTP 5/15m.
 Analytics: `otp_success, kyc_completed, group_created, member_joined, contribution_confirmed, payout_completed, score_viewed, report_shared, dispute_opened/resolved, refund_completed` (+group/cycle/amount/fee/method/latency/score/tier/fraud/weights_hash). Dashboard: activation ≥60% 7d, full ≥80%, on-time ≥85%, payout ≥98%, coverage 100%, SLA, suspense, revenue. Alerts: funnel drop >10% WoW, unmatched spike, payout breach.
 

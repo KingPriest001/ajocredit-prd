@@ -116,7 +116,7 @@ paths:
                 cycleId: { type: string }
                 method: { type: string, enum: [transfer, card] }
       responses:
-        "200": { description: "Principal + fee + total (e.g. 20000+200=20200) + VA/method" }
+        "200": { description: "Principal + fee + total (e.g. 20000+100=20100; ≤10000 fee is 1%, above it 0.5%) + VA/method" }
   /webhooks/psp/{provider}:
     post:
       summary: PSP webhook (HMAC, dedupe rail_ref → pending→confirmed)

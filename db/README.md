@@ -11,6 +11,6 @@
 3. Check: `http://localhost:4000/health` → `{"ok":true,"db":"up"}`
 
 ## Endpoints
-`GET /api/score/:ajId` · `GET /api/groups/:id/health` · `GET /api/groups/:id/ledger` · `POST /api/contributions` (fee enforced: <₦10k 1.5% · ₦10k–100k 1.0% · >₦100k 0.75%) · `GET /api/notifications/:u` · `GET /api/referrals/:u` · `GET /api/passport/:ajId`
+`GET /api/score/:ajId` · `GET /api/groups/:id/health` · `GET /api/groups/:id/ledger` · `POST /api/contributions` (fee enforced: ≤₦10k 1% · >₦10k 0.5%) · `GET /api/notifications/:u` · `GET /api/referrals/:u` · `GET /api/passport/:ajId`
 
 The prototype calls the API when reachable (localhost) and silently keeps mock data otherwise — nothing breaks offline or on Netlify.

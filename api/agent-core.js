@@ -17,12 +17,11 @@
 //     then it is released (EARNED).
 //   * 1% of that member's FIRST contribution, and nothing after that.
 //
-// WHY ONLY THE FIRST CONTRIBUTION: AJOCREDIT collects an average fee of about
-// 1% on every contribution (1.5% under N10,000, 1% between N10,000 and
-// N100,000, 0.75% above). A percentage that kept running for 12 months would
-// hand the agent the whole fee and leave AJOCREDIT nothing, so the percentage
-// is a one-time bonus on the first contribution and the N500 is the standing
-// reward for bringing an active member.
+// WHY ONLY THE FIRST CONTRIBUTION: AJOCREDIT collects 1% on a contribution up
+// to N10,000 and 0.5% above that. A percentage that kept running for 12 months
+// would hand the agent the whole fee and leave AJOCREDIT nothing, so the
+// percentage is a one-time bonus on the first contribution and the N500 is the
+// standing reward for bringing an active member.
 
 const crypto = require('crypto');
 

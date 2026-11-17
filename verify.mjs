@@ -2,10 +2,21 @@
 let pass = 0, fail = 0;
 const ok = (name, cond) => { if (cond) { pass++; console.log(`PASS ${name}`); } else { fail++; console.log(`FAIL ${name}`); } };
 
-// --- fees (api/src/payments/fees.ts) ---
-const feeFor = (a) => { let r = a < 10000 ? 0.015 : a > 100000 ? 0.0075 : 0.01; const fee = Math.round(a * r); return { fee, total: a + fee }; };
-ok("fee 20000→200/20200", JSON.stringify(feeFor(20000)) === JSON.stringify({ fee: 200, total: 20200 }));
-ok("fee 5000→75", feeFor(5000).fee === 75);
+// --- fees (api/src/payments/fees.ts + api/server.js feeFor) ---
+// Flat rule: ≤₦10,000 → 1%, >₦10,000 → 0.5%, rounded to the nearest kobo.
+const feeFor = (a) => { const r = a <= 10000 ? 0.01 : 0.005; const fee = Math.round(a * r * 100) / 100; return { fee, total: Math.round((a + fee) * 100) / 100 }; };
+ok("fee 2000→20/2020", JSON.stringify(feeFor(2000)) === JSON.stringify({ fee: 20, total: 2020 }));
+ok("fee 5000→50/5050", JSON.stringify(feeFor(5000)) === JSON.stringify({ fee: 50, total: 5050 }));
+ok("fee 10000 boundary→100/10100 (still 1%)", JSON.stringify(feeFor(10000)) === JSON.stringify({ fee: 100, total: 10100 }));
+ok("fee 10001 boundary→50.01/10051.01 (drops to 0.5%)", JSON.stringify(feeFor(10001)) === JSON.stringify({ fee: 50.01, total: 10051.01 }));
+ok("fee 10500 rounding→52.5/10552.5", JSON.stringify(feeFor(10500)) === JSON.stringify({ fee: 52.5, total: 10552.5 }));
+ok("fee 20000→100/20100", JSON.stringify(feeFor(20000)) === JSON.stringify({ fee: 100, total: 20100 }));
+ok("fee 50000→250/50250", JSON.stringify(feeFor(50000)) === JSON.stringify({ fee: 250, total: 50250 }));
+ok("fee 100000→500/100500", JSON.stringify(feeFor(100000)) === JSON.stringify({ fee: 500, total: 100500 }));
+ok("fee 0→0/0", JSON.stringify(feeFor(0)) === JSON.stringify({ fee: 0, total: 0 }));
+ok("fee 100 small→1/101", JSON.stringify(feeFor(100)) === JSON.stringify({ fee: 1, total: 101 }));
+ok("fee 9999→99.99/10098.99", JSON.stringify(feeFor(9999)) === JSON.stringify({ fee: 99.99, total: 10098.99 }));
+ok("fee 1000000 large→5000/1005000", JSON.stringify(feeFor(1000000)) === JSON.stringify({ fee: 5000, total: 1005000 }));
 
 // --- ledger idempotency ---
 const store = new Map();

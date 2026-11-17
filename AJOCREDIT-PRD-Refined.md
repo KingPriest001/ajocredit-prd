@@ -33,7 +33,7 @@
 | Move safeguarded funds directly | **No — payout engine only** | No | No |
 
 ### 2.2 Scope IN / OUT
-**IN:** Rotational Ajo + Target Savings; 1-min group creation; link/code invite; payout order admin/random/voting; card + bank transfer; dedicated VA per member per group; fee pre-display (₦20,000 + ₦200 = ₦20,200; pot gets ₦20,000); reminders/grace/penalty/default; system payouts; rule-based exit/refund; multi-group; dispute centre + audit; Financial Identity + Score + basic report; governance (late fee, grace, voting threshold).
+**IN:** Rotational Ajo + Target Savings; 1-min group creation; link/code invite; payout order admin/random/voting; card + bank transfer; dedicated VA per member per group; fee pre-display (₦20,000 + ₦100 = ₦20,100; pot gets ₦20,000); reminders/grace/penalty/default; system payouts; rule-based exit/refund; multi-group; dispute centre + audit; Financial Identity + Score + basic report; governance (late fee, grace, voting threshold).
 **OUT:** Lending disbursement, marketplace, institution portal/API, USSD, insurance/guarantee, BVN/NIN, native apps (V1 = mobile web/PWA), SaaS billing, data sale.
 
 ### 2.3 User Stories + Acceptance (Given/When/Then)
@@ -42,7 +42,7 @@
 - **US-03 Group creation:** Name, amount, size, frequency, start, payout mode, rules → created <60s, `status=forming`, ledger opened.
 - **US-04 Invite/join:** Link/code + US-01/02 + admin approve → `Membership.active`, VA assigned, slots lock at capacity.
 - **US-05 Payout order:** Admin|random|voting frozen pre-start in governance record; random = server-seeded shuffle logged; voting = >50% threshold, 1 vote/member, deadline.
-- **US-06 Contribution:** Due cycle + card/transfer to VA → pre-confirm shows principal + fee + total; `confirmed` → `LedgerEntry(pot ₦20k, fee ₦200)`; auto-match <5min.
+- **US-06 Contribution:** Due cycle + card/transfer to VA → pre-confirm shows principal + fee + total; `confirmed` → `LedgerEntry(pot ₦20k, fee ₦100)`; auto-match <5min.
 - **US-07 Escalation:** T-24h/T-0 reminders → 48h grace (config) → late fee → 2 missed cycles = `default` + Score hit + GTI update.
 - **US-08 Payout:** Full collection (or rule partial) + beneficiary KYC-lite → transfer <24h, `completed`, ledger balanced, no manual admin transfer.
 - **US-09 Exit/refund:** Pre-start + no payout → full refund - fees (3-day SLA); mid-cycle + payout received → block until settlement; mid-cycle + not received → net refund - penalties (7 days); Target → pro-rata per policy.
@@ -61,7 +61,7 @@ Activation ≥60% join in 7d; ≥80% groups reach full; on-time ≥85% by due+gr
 
 **Custody:** AJOCREDIT never holds funds. Member → Collection (PSP e.g. Paystack/Flutterwave) → Partner Bank Safeguarded Account (DMB/MFB/PSB/MMO TBD) → Ledger → Payout Engine → Beneficiary. Separation: Rail → Safeguarded → Ledger → Rules → Payout.
 **Ledger:** Double-entry, append-only; idempotency `group+member+cycle+rail_ref`; states `pending→confirmed|failed→reversed`; only `confirmed` mutates pot + Score; 1 VA per member per group (NUBAN); realtime webhook + T+0/T+1 NIBSS match; suspense ledger + daily close; payout batches 10:00/15:00 WAT.
-**Rails/fees:** V1 card + transfer; V2 USSD. Contribution intact; fee to revenue account, never co-mingled; tiers as assumptions (<₦10k 1.5%, ₦10k-100k 1.0%, >₦100k 0.75%); mandatory pre-pay display + split receipt.
+**Rails/fees:** V1 card + transfer; V2 USSD. Contribution intact; fee to revenue account, never co-mingled; flat two-rate fee (≤₦10k 1%, >₦10k 0.5%); mandatory pre-pay display + split receipt.
 **Escalation defaults:** Reminder T+0+2h, Reminder2 T+1, grace T+1..T+3, penalty T+4 (cap TBD), default T+7/cycle close.
 **Exit/refund matrix:** See US-09; no arbitrary withdrawals; refunds to verified source account only; failed → auto-reverse 1-3d.
 **Nigeria 2026 checklist:** No deposit-taking/lending without CBN licence (BOFIA 2020); operate via licensed partner + PSP; NDPA 2023 + GAID 2025 (explicit/logged/revocable consent, RoPA/DPIA/DPO); AML/CFT CBN Mar 2026 + NFIU STR/CTR (post-grey-list scrutiny); KYC tiers V1 OTP (low limits) / V2 BVN via licensed partner / V3 NIN; transfer limits + NUBAN traceability + full audit trail.

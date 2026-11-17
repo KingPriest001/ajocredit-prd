@@ -92,11 +92,10 @@ does not report itself ready within `appReadyTimeout` (30 s). That is why
 Agents bring Ajo groups to AJOCREDIT and earn **₦500 per member** (held until
 that member's first contribution) **plus 1% of that first contribution, once**.
 
-The percentage is deliberately a one-time bonus. AJOCREDIT collects about **1%
-in fees** on every contribution (1.5% under ₦10,000, 1% between ₦10,000 and
-₦100,000, 0.75% above), so a percentage that kept running would hand the
-agent the whole fee and leave AJOCREDIT nothing. The standing reward is the
-flat ₦500 per member who joins and becomes active.
+The percentage is deliberately a one-time bonus. AJOCREDIT collects **1% up
+to ₦10,000 and 0.5% above that** on every contribution, so a percentage that
+kept running would hand the agent the whole fee and leave AJOCREDIT nothing.
+The standing reward is the flat ₦500 per member who joins and becomes active.
 
 | Page | What it is |
 |---|---|

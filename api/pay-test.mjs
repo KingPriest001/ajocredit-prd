@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 const sec = fs.readFileSync(new URL('../.env', import.meta.url), 'utf8').match(/^PAYSTACK_SECRET_KEY=(.+)$/m)[1].trim();
-const body = JSON.stringify({ event: 'charge.success', data: { reference: 'WH-TEST-1', metadata: { group_id: 'g-aj4821', membership_id: 'm-bola', cycle_id: 'c-aj4821-1', pot: 5000, fee: 75 } } });
+const body = JSON.stringify({ event: 'charge.success', data: { reference: 'WH-TEST-1', metadata: { group_id: 'g-aj4821', membership_id: 'm-bola', cycle_id: 'c-aj4821-1', pot: 5000, fee: 50 } } });
 const sig = crypto.createHmac('sha512', sec).update(body).digest('hex');
 const good = await fetch('http://localhost:4000/webhooks/paystack', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-paystack-signature': sig }, body });
 console.log('GOOD-SIG:', await good.text());

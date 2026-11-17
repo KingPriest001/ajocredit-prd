@@ -4,7 +4,7 @@
 **Prototype checks (no install):** open `prototype/index.html` → create group <60s, pay ₦20,200 → receipt + Score +5, offline toggle → queue banner, failed card → retry, vote → quorum bar.
 
 ## Fixtures (must pass)
-- Money: fee ₦20k→₦200/₦20,200; 10x replay→1 confirmed; double webhook→ignored; payout shortfall/unbalanced/self-approve/duplicate→blocked.
+- Money: fee ₦20k→₦100/₦20,100; 10x replay→1 confirmed; double webhook→ignored; payout shortfall/unbalanced/self-approve/duplicate→blocked.
 - Score: 12/12→≥700 Gold; Ada→700-799 Gold; 3/10 defaults→drop ≥100; N=2→PROVISIONAL; 90d inactive→drop ≥50; 3 accts/1 device→Fraud High + share blocked.
 
 ## NFR gates (measure before pilot scale)

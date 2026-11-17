@@ -58,8 +58,8 @@ CREATE TABLE IF NOT EXISTS contributions (
   membership_id TEXT NOT NULL,
   cycle_id TEXT NOT NULL REFERENCES cycles(id) ON DELETE CASCADE,
   amount INT NOT NULL,
-  fee INT NOT NULL DEFAULT 0,
-  total INT NOT NULL,
+  fee NUMERIC NOT NULL DEFAULT 0,
+  total NUMERIC NOT NULL,
   method TEXT NOT NULL DEFAULT 'transfer',
   reference TEXT UNIQUE NOT NULL,
   status TEXT NOT NULL DEFAULT 'PENDING',
@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
   group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
   debit_acct TEXT NOT NULL,
   credit_acct TEXT NOT NULL,
-  amount INT NOT NULL CHECK (amount > 0),
+  amount NUMERIC NOT NULL CHECK (amount > 0),
   type TEXT NOT NULL,
   ref_id TEXT NOT NULL,
   idempotency_key TEXT UNIQUE NOT NULL,
@@ -207,12 +207,12 @@ INSERT INTO cycles (id, group_id, seq, due_date, pot_expected, pot_collected, st
  ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO contributions (id, membership_id, cycle_id, amount, fee, total, method, reference, status) VALUES
- ('ct-seed-1', 'm-bola', 'c-aj4821-1', 5000, 75, 5075, 'transfer', 'AJ-4821-C1-Bola', 'CONFIRMED')
+ ('ct-seed-1', 'm-bola', 'c-aj4821-1', 5000, 50, 5050, 'transfer', 'AJ-4821-C1-Bola', 'CONFIRMED')
  ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO ledger_entries (id, group_id, debit_acct, credit_acct, amount, type, ref_id, idempotency_key, status, hash) VALUES
  ('le-seed-1', 'g-aj4821', 'psp:paystack', 'pot:g-aj4821', 5000, 'contribution', 'AJ-4821-C1-Bola', 'g-aj4821:m-bola:1:AJ-4821-C1-Bola', 'CONFIRMED', 'seedhash1'),
- ('le-seed-2', 'g-aj4821', 'member:m-bola', 'revenue:fees', 75, 'fee', 'AJ-4821-C1-Bola', 'g-aj4821:m-bola:1:AJ-4821-C1-Bola:fee', 'CONFIRMED', 'seedhash2')
+ ('le-seed-2', 'g-aj4821', 'member:m-bola', 'revenue:fees', 50, 'fee', 'AJ-4821-C1-Bola', 'g-aj4821:m-bola:1:AJ-4821-C1-Bola:fee', 'CONFIRMED', 'seedhash2')
  ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO score_history (id, user_id, score, inputs, version, hash) VALUES
@@ -224,7 +224,7 @@ INSERT INTO disputes (id, group_id, raised_by, category, status) VALUES
  ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO notifications (id, user_id, kind, title, body) VALUES
- ('n1', 'u-bola', 'due', 'Contribution due in 3 days', '₦5,000 + ₦75 fee for Bodija Weekly. Due May 25.'),
+ ('n1', 'u-bola', 'due', 'Contribution due in 3 days', '₦5,000 + ₦50 fee for Bodija Weekly. Due May 25.'),
  ('n2', 'u-bola', 'payout', 'Payout in 2 days', 'Aunty Ngozi receives ₦100,000. 15 of 20 paid.'),
  ('n3', 'u-bola', 'credit', 'Credit Power up +₦25,000', 'Consistency 95% for 4 months. Silver · 80 to Gold.')
  ON CONFLICT (id) DO NOTHING;

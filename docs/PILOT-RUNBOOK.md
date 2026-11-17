@@ -15,7 +15,7 @@
 - Disputes: ack 24h; Standard resolve 5 business days; High (fraud/funds) auto-escalated + updates every 48h. Evidence ≤5 files/10MB; system txn IDs authoritative (cite them); open penalty excluded from Credit Power while under review. Ghost-member flags + no-override rule per EDGE-CASES §7.
 
 ## Comms templates (EN + Pidgin)
-- Reminder: `Mama Nkechi, ₦20,000 due by 6pm. Fee ₦200. Pay to VA 9876… / *347*20000*AJ4821#`
+- Reminder: `Mama Nkechi, ₦20,000 due by 6pm. Fee ₦100. Pay to VA 9876… / *347*20000*AJ4821#`
 - Cutoff miss: `Batch missed 15:00 → next 10:00 WAT. ETA …`
 - Payout done: `₦100,000 sent to GTB ••0123. Receipt + Score updated.`
 

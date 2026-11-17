@@ -290,41 +290,47 @@ async function uniqueCode(ctx, type) {
   return agentCodeFor(type) + crypto.randomInt(10, 99);
 }
 
-// ------------------------------------------------------------------- routes --
-function installRoutes(ctx) {
-  const { app, q, normPhone, sendSms } = ctx;
-
-  // An agent route always needs a real session - even while the API is open
-  // for the pilot. The shared auth middleware lets requests through when
-  // REQUIRE_AUTH is not set, which is not good enough for an agent dashboard.
-  async function requireSession(req, res, next) {
+// ------------------------------------------------------------------- shared --
+// An agent route always needs a real session - even while the API is open
+// for the pilot. The shared auth middleware lets requests through when
+// REQUIRE_AUTH is not set, which is not good enough for an agent dashboard.
+function makeRequireSession(ctx) {
+  const { q } = ctx;
+  return async function (req, res, next) {
     const t = String(req.headers.authorization || '').replace(/^Bearer /, '');
-    if (!t) return res.status(401).json({ error: 'Please sign in to use the agent pages.' });
+    if (!t) return res.status(401).json({ error: 'Please sign in to use this page.' });
     const h = crypto.createHash('sha256').update(t).digest('hex');
     const s = await q('SELECT user_id FROM sessions WHERE token_hash=$1 AND expires_at > NOW()', [h]);
     if (!s.length) return res.status(401).json({ error: 'Your session has expired. Please sign in again.' });
     req.user = s[0].user_id;
     next();
-  }
+  };
+}
 
-  // Admin access: a shared secret in the x-admin-token header. If the secret is
-  // not set the admin panel stays switched off (fail closed).
-  function requireAdmin(req, res, next) {
-    const secret = process.env.AGENT_ADMIN_TOKEN || '';
-    const got = String(req.headers['x-admin-token'] || req.query.admin_token || '');
-    if (!secret) {
-      return res.status(403).json({
-        error: 'The admin panel is not switched on yet. Set AGENT_ADMIN_TOKEN on the server, save, and wait for the redeploy.',
-      });
-    }
-    if (!got) {
-      return res.status(403).json({ error: 'Paste your admin key into the Admin Key box, then press "Open the list".' });
-    }
-    if (got !== secret) {
-      return res.status(403).json({ error: 'That admin key is not right. It must match AGENT_ADMIN_TOKEN on the server exactly.' });
-    }
-    next();
+// Admin access: a shared secret in the x-admin-token header. If the secret is
+// not set the admin panel stays switched off (fail closed).
+function requireAdmin(req, res, next) {
+  const secret = process.env.AGENT_ADMIN_TOKEN || '';
+  const got = String(req.headers['x-admin-token'] || req.query.admin_token || '');
+  if (!secret) {
+    return res.status(403).json({
+      error: 'The admin panel is not switched on yet. Set AGENT_ADMIN_TOKEN on the server, save, and wait for the redeploy.',
+    });
   }
+  if (!got) {
+    return res.status(403).json({ error: 'Paste your admin key into the Admin Key box, then press "Open the list".' });
+  }
+  if (got !== secret) {
+    return res.status(403).json({ error: 'That admin key is not right. It must match AGENT_ADMIN_TOKEN on the server exactly.' });
+  }
+  next();
+}
+
+// ------------------------------------------------------------------- routes --
+function installRoutes(ctx) {
+  const { app, q, normPhone, sendSms } = ctx;
+  const requireSession = ctx.requireSession || makeRequireSession(ctx);
+  const authUser = requireSession;
 
   // ---- public --------------------------------------------------------------
   // What an agent earns, in the words we show. Used by the agent pages.
@@ -538,6 +544,7 @@ function installRoutes(ctx) {
       const invite = 'AJ-' + crypto.randomInt(100000, 999999);
       const amount = Number(b.amount) || 5000;
       const size = Math.min(30, Math.max(5, Number(b.size) || 10));
+      await ctx.ensurePool(ctx, gid);
       await q(
         `INSERT INTO groups (id, name, type, amount, size, frequency, payout_mode, status, rules, invite_code, agent_id, source)
          VALUES ($1,$2,'ROTATIONAL',$3,$4,$5,'random','FORMING','{}',$6,$7,'new')`,
@@ -717,6 +724,7 @@ function installRoutes(ctx) {
       const invite = 'AJ-' + crypto.randomInt(100000, 999999);
       const amount = Number(b.amount) || 5000;
       const size = Math.min(30, Math.max(5, Number(b.members_count) || 10));
+      await ctx.ensurePool(ctx, gid);
       await q(
         `INSERT INTO groups (id, name, type, amount, size, frequency, payout_mode, status, rules, invite_code, agent_id, source)
          VALUES ($1,$2,'ROTATIONAL',$3,$4,$5,'random','FORMING','{}',$6,$7,'migrated')`,
@@ -892,4 +900,7 @@ function installRoutes(ctx) {
   });
 }
 
-module.exports = { installSchema, installRoutes, releaseOnFirstContribution, linkReferral, fillTemplate };
+module.exports = {
+  installSchema, installRoutes, releaseOnFirstContribution, linkReferral, fillTemplate,
+  requireAdmin, makeRequireSession,
+};
