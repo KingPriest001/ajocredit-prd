@@ -311,6 +311,37 @@ function installRoutes(ctx) {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
+  // Launch cleanup: wipe test data so the live ledger starts at ₦0.
+  //   scope 'test' — only the known QA fixtures (AJO-ACC-/DEMO-/MVP-/TEST-)
+  //   scope 'all'  — every transaction and contribution record
+  // Both require confirm:'CLEAR', so nothing is deleted by a stray call.
+  app.post('/api/admin/transactions/clear', requireAdmin, async (req, res) => {
+    try {
+      const b = req.body || {};
+      const scope = (b.scope === 'all' || b.scope === 'test') ? b.scope : null;
+      if (!scope) return res.status(400).json({ error: "Say what to clear: scope 'test' (QA fixtures only) or scope 'all' (everything - live starts at ₦0)." });
+      if (b.confirm !== 'CLEAR') return res.status(400).json({ error: "Add confirm:'CLEAR' in the body so this can only happen deliberately." });
+      const where = scope === 'all' ? '' :
+        ` WHERE reference LIKE 'AJO-ACC-%' OR reference LIKE 'DEMO-%' OR reference LIKE 'MVP-%' OR reference LIKE 'TEST-%'`;
+      const before = await q(`SELECT COUNT(*)::int AS n FROM transactions${where}`);
+      const beforeCt = await q(`SELECT COUNT(*)::int AS n FROM contributions${where}`);
+      await q(`DELETE FROM transactions${where}`);
+      await q(`DELETE FROM contributions${where}`);
+      // The totals the admin Transactions page will show right after the wipe.
+      const totals = await q(
+        `SELECT COALESCE(SUM(contribution_amount),0)::float AS contributions,
+                COALESCE(SUM(fee_amount),0)::float AS fees,
+                COALESCE(SUM(total_amount),0)::float AS total,
+                COUNT(*)::int AS count
+           FROM transactions`);
+      res.json({
+        ok: true, scope,
+        deleted: { transactions: before[0].n, contributions: beforeCt[0].n },
+        totals: totals[0],
+      });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   // A group admin sees their own pool, and never the company's fees.
   app.get('/api/groups/:id/transactions', authUser, async (req, res) => {
     try {
