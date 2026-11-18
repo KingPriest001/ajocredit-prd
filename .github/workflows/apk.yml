@@ -1,4 +1,4 @@
-name: apk
+﻿name: apk
 on:
   push:
     branches: [main]
@@ -78,9 +78,9 @@ jobs:
           cfg = json.loads(p.read_text())
           cfg['plugins'] = cfg.get('plugins', {})
           cfg['plugins']['CapacitorUpdater'] = {
-            'updateUrl': 'https://ajocredit-api.onrender.com/api/app/update',
-            'statsUrl': 'https://ajocredit-api.onrender.com/api/app/stats',
-            'channelUrl': 'https://ajocredit-api.onrender.com/api/app/channel',
+            'updateUrl': 'https://ajocredit.ng/api/app/update',
+            'statsUrl': 'https://ajocredit.ng/api/app/stats',
+            'channelUrl': 'https://ajocredit.ng/api/app/channel',
             'autoUpdate': True,
             'directUpdate': False,
             'periodCheckDelay': 600,
@@ -170,7 +170,7 @@ jobs:
           git add releases/ajocredit.apk prototype/version.json prototype/version.js prototype/bundle.json prototype/bundles
           git diff --staged --quiet || (git commit -m "[skip ci] Refresh published APK" && git push)
 
-  # ---- Play Store–ready release signing (does NOT publish; artifacts only) ----
+  # ---- Play Storeâ€“ready release signing (does NOT publish; artifacts only) ----
   # Signs a release AAB + APK with the permanent keystore stored in repo secrets.
   # The debug job above keeps publishing prototype/ajocredit.apk unchanged, so
   # existing debug installs are unaffected. Upload to Play Console is a manual,
@@ -233,9 +233,9 @@ jobs:
           cfg = json.loads(p.read_text())
           cfg['plugins'] = cfg.get('plugins', {})
           cfg['plugins']['CapacitorUpdater'] = {
-            'updateUrl': 'https://ajocredit-api.onrender.com/api/app/update',
-            'statsUrl': 'https://ajocredit-api.onrender.com/api/app/stats',
-            'channelUrl': 'https://ajocredit-api.onrender.com/api/app/channel',
+            'updateUrl': 'https://ajocredit.ng/api/app/update',
+            'statsUrl': 'https://ajocredit.ng/api/app/stats',
+            'channelUrl': 'https://ajocredit.ng/api/app/channel',
             'autoUpdate': True,
             'directUpdate': False,
             'periodCheckDelay': 600,
@@ -325,7 +325,7 @@ jobs:
           print("build.gradle patched for release signing")
           PY
       - run: cd android && chmod +x gradlew && ./gradlew bundleRelease assembleRelease
-      # Prove the APK is validly signed with our key (this is the "Play Store–ready" check).
+      # Prove the APK is validly signed with our key (this is the "Play Storeâ€“ready" check).
       - name: Verify signature
         run: |
           $ANDROID_HOME/build-tools/34.0.0/apksigner verify --print-certs android/app/build/outputs/apk/release/app-release.apk | tee /tmp/certs.txt

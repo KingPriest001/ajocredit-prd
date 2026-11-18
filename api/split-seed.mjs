@@ -44,12 +44,12 @@ await q(
 );
 
 const fixtures = [
-  { ref: 'AJO-ACC-1', amount: 5000,  gateway: 'paystack',    status: 'CONFIRMED' },
-  { ref: 'AJO-ACC-2', amount: 10000, gateway: 'paystack',    status: 'CONFIRMED' }, // 1% boundary
+  { ref: 'AJO-ACC-1', amount: 5000,  gateway: 'flutterwave', status: 'CONFIRMED' },
+  { ref: 'AJO-ACC-2', amount: 10000, gateway: 'flutterwave', status: 'CONFIRMED' }, // 1% boundary
   { ref: 'AJO-ACC-3', amount: 25000, gateway: 'flutterwave', status: 'CONFIRMED' }, // 0.5%
   { ref: 'AJO-ACC-4', amount: 15000, gateway: 'flutterwave', status: 'CONFIRMED' }, // 0.5%
-  { ref: 'AJO-ACC-5', amount: 2000,  gateway: 'paystack',    status: 'PENDING'   },
-  { ref: 'AJO-ACC-6', amount: 500,   gateway: 'paystack',    status: 'FAILED'    },
+  { ref: 'AJO-ACC-5', amount: 2000,  gateway: 'flutterwave', status: 'PENDING'   },
+  { ref: 'AJO-ACC-6', amount: 500,   gateway: 'flutterwave', status: 'FAILED'    },
 ];
 
 await exec(`DELETE FROM transactions WHERE reference LIKE 'AJO-ACC-%'`);

@@ -1,6 +1,6 @@
 /* Shared helpers for the AJOCREDIT agent pages. */
 (function (global) {
-  var API_BASES = ['https://ajocredit-api.onrender.com', 'http://localhost:4000'];
+  var API_BASES = ['https://ajocredit.ng', 'http://localhost:4000'];
   // Served from this machine (local prototype / acceptance run)? Talk to the
   // local API first - the live API would answer 403 to a local admin key and
   // that answer is final (only network failures fall through to the next base).

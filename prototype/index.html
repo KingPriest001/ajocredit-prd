@@ -368,7 +368,7 @@ function authBoot(){apiAuth('/api/auth/config',{},15000).then(function(r){var c=
   if(window._ajoAuth===1&&!ajoToken()){ajoRequireLogin();return}
   maybeAuthGate()})}
 
-var API_BASES=['https://ajocredit-api.onrender.com','http://localhost:4000'];
+var API_BASES=['https://ajocredit.ng','http://localhost:4000'];
 // Served locally? Talk to the local API first, so a live 401 can't wipe a
 // local session token before the local server is ever reached.
 try{if(['localhost','127.0.0.1'].indexOf(location.hostname)>=0)API_BASES.reverse()}catch(e){}

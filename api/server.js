@@ -87,6 +87,10 @@ async function main() {
   app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
   const crypto = require('crypto');
   const PAYS_MODE = process.env.PAYMENTS_MODE || 'direct';
+  // Launch gateway policy: PAYMENT_GATEWAY=FLUTTERWAVE_LIVE_ONLY means every
+  // payment, account check and webhook runs on Flutterwave LIVE only. Paystack
+  // (still on test keys) is switched off completely until it goes live itself.
+  const FLW_ONLY = () => String(process.env.PAYMENT_GATEWAY || '').toUpperCase() === 'FLUTTERWAVE_LIVE_ONLY';
   const PSK = () => process.env.PAYSTACK_SECRET_KEY || '';
   const PS_HDR = () => ({ Authorization: `Bearer ${PSK()}`, 'Content-Type': 'application/json' });
   const FLW = () => process.env.FLUTTERWAVE_SECRET_KEY || '';
@@ -380,6 +384,12 @@ async function main() {
   // Payout maker/checker audit columns (see /api/payouts/* below).
   await exec(`ALTER TABLE payouts ADD COLUMN IF NOT EXISTS initiated_by TEXT;
     ALTER TABLE payouts ADD COLUMN IF NOT EXISTS approved_by TEXT;`);
+
+  // Root: a plain liveness answer so hitting the bare domain in a browser
+  // (or a health check) shows "Cannot GET /" no more.
+  app.get('/', (req, res) => {
+    res.json({ status: 'AJO Credit API is live' });
+  });
 
   app.get('/health', async (req, res) => {
     try { await db.query('SELECT 1'); res.json({ ok: true, db: 'up', engine: process.env.USE_EXTERNAL_DB === '1' ? 'postgres-managed' : 'pglite-postgres' }); }
@@ -955,7 +965,9 @@ async function main() {
   // Bank lists are cached 12h in memory: keeps cold starts fast and survives PSP blips (serves stale).
   const bankCache = new Map();
   app.get('/api/banks', async (req, res) => {
-    const pv = (req.query || {}).provider === 'flutterwave' ? 'flutterwave' : 'paystack';
+    // Flutterwave-only launch: the bank list always comes from Flutterwave,
+    // whatever the caller asks for — Paystack stays switched off.
+    const pv = FLW_ONLY() ? 'flutterwave' : ((req.query || {}).provider === 'flutterwave' ? 'flutterwave' : 'paystack');
     const hit = bankCache.get(pv);
     if (hit && Date.now() - hit.at < 12 * 60 * 60 * 1000) return res.json(hit.banks);
     try {
@@ -984,7 +996,9 @@ async function main() {
     if (!bank_code || !account_number) return res.status(400).json({ error: 'bank_code + account_number required' });
     try {
       let account_name;
-      if ((provider || 'paystack') === 'flutterwave') {
+      // Flutterwave-only launch: account verification runs on Flutterwave too.
+      const useFlw = FLW_ONLY() || (provider || 'paystack') === 'flutterwave';
+      if (useFlw) {
         const r = await fetch('https://api.flutterwave.com/v3/accounts/resolve', {
           method: 'POST', headers: FLW_HDR(), signal: AbortSignal.timeout(20000), body: JSON.stringify({ account_number, account_bank: bank_code }),
         });
@@ -999,7 +1013,7 @@ async function main() {
       }
       await db.query('UPDATE groups SET dest_bank_code=$1, dest_account_number=$2, dest_account_name=$3, dest_verified=TRUE WHERE id=$4',
         [bank_code, account_number, account_name, req.params.id]);
-      res.json({ ok: true, account_name, provider: provider || 'paystack', mode: PAYS_MODE });
+      res.json({ ok: true, account_name, provider: useFlw ? 'flutterwave' : 'paystack', mode: PAYS_MODE });
     } catch (e) { res.status(502).json({ error: 'Verification service timed out. Check the details and try again.' }); }
   });
   app.post('/api/payments/init', async (req, res) => {
@@ -1056,11 +1070,11 @@ async function main() {
       if (/split/i.test(String(e && e.message))) {
         return res.status(502).json({ ok: false, error: 'We could not set up the payment split for this group, so no money was taken. Please try again or tell your group admin.' });
       }
-      // Fall back to Paystack ONLY when its key is live. A test key (pk_test_) must never be
-      // handed to a real member: they'd be sent to a checkout that can't take real money, and a
-      // test-mode webhook could confirm a contribution with no money behind it. Once
-      // PAYSTACK_PUBLIC_KEY is switched to pk_live_ this backup activates automatically.
-      const pk = process.env.PAYSTACK_PUBLIC_KEY || '';
+      // Paystack is DISABLED for launch (PAYMENT_GATEWAY=FLUTTERWAVE_LIVE_ONLY):
+      // it is still on test keys, so it must never take a live payment. The
+      // fallback below stays off until Paystack goes live AND the gateway
+      // policy is changed. Fail cleanly, never silently downgrade.
+      const pk = FLW_ONLY() ? '' : (process.env.PAYSTACK_PUBLIC_KEY || '');
       if (pk.startsWith('pk_live_')) {
         const psPlan = await routingPlan(group_id, amount, fee, 'paystack');
         money.assertNoMixing(psPlan);
@@ -1114,6 +1128,11 @@ async function main() {
     const sig = req.headers['x-paystack-signature'];
     const expect = crypto.createHmac('sha512', PSK()).update(req.rawBody || '').digest('hex');
     if (!sig || sig !== expect) return res.status(401).json({ error: 'bad signature' });
+    // PAYMENT_GATEWAY=FLUTTERWAVE_LIVE_ONLY: Paystack is off for launch. A
+    // signature is still checked, but NO Paystack event may confirm a
+    // contribution (a test-mode event must never mark money that never moved
+    // as paid). The receipt is acknowledged and ignored.
+    if (FLW_ONLY()) return res.json({ ok: false, ignored: true, error: 'Paystack is disabled for launch — Flutterwave LIVE only.' });
     const ev = req.body || {};
     if (ev.event === 'charge.success') {
       const md = ev.data?.metadata || {};

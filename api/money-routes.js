@@ -4,14 +4,16 @@
 const crypto = require('crypto');
 const money = require('./money');
 
-// The company account that receives EVERY fee. Seeded from the brief so it is
-// never empty, and it can be changed later from the admin panel.
+// The company account that receives EVERY fee: ZENONMAG CONCEPTS VENTURES at
+// FIDELITY BANK 5601861011. No personal account exists anywhere in this code —
+// COMPANY_* env vars (.env / Render) win so the live fee account is enforced
+// on every boot, and the admin panel can still edit it between restarts.
 const DEFAULT_COMPANY_ACCOUNT = {
   id: 'main',
-  bank_name: 'GTBANK',
-  account_number: '0607219839',
-  account_name: 'Samuel Boniface Mba',
-  bank_code: '058',
+  bank_name: process.env.COMPANY_BANK || 'FIDELITY BANK',
+  account_number: process.env.COMPANY_ACCOUNT || '5601861011',
+  account_name: process.env.COMPANY_NAME || 'ZENONMAG CONCEPTS VENTURES',
+  bank_code: process.env.COMPANY_BANK_CODE || '070', // FIDELITY BANK (NIBSS)
 };
 
 async function installSchema(deps) {
@@ -76,13 +78,19 @@ async function installSchema(deps) {
     CREATE UNIQUE INDEX IF NOT EXISTS paystack_splits_key_idx ON paystack_splits (group_id, ratio_key);
   `);
 
-  // The company account is seeded once. It is never overwritten afterwards.
+  // The company account is seeded once. When COMPANY_* env vars are set (the
+  // launch .env / Render), they are re-applied on every boot so the fee
+  // account can never drift away from the company's FIDELITY BANK account.
+  const envForced = !!process.env.COMPANY_ACCOUNT;
   await q(
     `INSERT INTO company_account (id, bank_name, account_number, account_name, bank_code)
-     VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO NOTHING`,
+     VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET
+       bank_name=EXCLUDED.bank_name, account_number=EXCLUDED.account_number,
+       account_name=EXCLUDED.account_name, bank_code=EXCLUDED.bank_code, updated_at=NOW()
+     WHERE $6::boolean`,
     [DEFAULT_COMPANY_ACCOUNT.id, DEFAULT_COMPANY_ACCOUNT.bank_name,
       DEFAULT_COMPANY_ACCOUNT.account_number, DEFAULT_COMPANY_ACCOUNT.account_name,
-      DEFAULT_COMPANY_ACCOUNT.bank_code]
+      DEFAULT_COMPANY_ACCOUNT.bank_code, envForced]
   );
 }
 
@@ -134,10 +142,12 @@ function installRoutes(ctx) {
         ok: true,
         company_account: row,
         // Which gateway the fees go through, and whether it can split.
+        payment_gateway: process.env.PAYMENT_GATEWAY || null,
         gateways: {
           paystack: {
             configured: !!process.env.PAYSTACK_SECRET_KEY,
             live: String(process.env.PAYSTACK_PUBLIC_KEY || '').startsWith('pk_live_'),
+            disabled: String(process.env.PAYMENT_GATEWAY || '').toUpperCase() === 'FLUTTERWAVE_LIVE_ONLY',
             subaccount_code: row ? row.paystack_subaccount_code : null,
             transfer: row ? !!row.transfer_enabled : false,
           },
@@ -263,13 +273,17 @@ function installRoutes(ctx) {
         `SELECT * FROM transactions
           ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
           ORDER BY created_at DESC LIMIT 500`, params);
+      // Totals never count a failed payment (FAILED / SPLIT_FAILED): money that
+      // was not taken - or could not be split - must not inflate what was
+      // actually collected. The rows above still show every attempt.
+      const totalWhere = [...where, `status NOT LIKE '%FAILED%'`];
       const totals = await q(
         `SELECT COALESCE(SUM(contribution_amount),0)::float AS contributions,
                 COALESCE(SUM(fee_amount),0)::float AS fees,
                 COALESCE(SUM(total_amount),0)::float AS total,
                 COUNT(*)::int AS count
            FROM transactions
-          ${where.length ? 'WHERE ' + where.join(' AND ') : ''}`, params);
+          ${totalWhere.length ? 'WHERE ' + totalWhere.join(' AND ') : ''}`, params);
       res.json({ ok: true, transactions: rows, totals: totals.length ? totals[0] : null });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -279,13 +293,14 @@ function installRoutes(ctx) {
     try {
       const company = await q("SELECT * FROM company_account WHERE id='main'");
       const r = await q(
-        `SELECT COALESCE(SUM(fee_amount),0)::float AS collected,
-                COUNT(*)::int AS payments,
+        `SELECT COALESCE(SUM(fee_amount) FILTER (WHERE status NOT LIKE '%FAILED%'),0)::float AS collected,
+                COUNT(*) FILTER (WHERE status NOT LIKE '%FAILED%')::int AS payments,
                 COALESCE(SUM(fee_amount) FILTER (WHERE status='PENDING'),0)::float AS pending,
-                COALESCE(SUM(fee_amount) FILTER (WHERE status='FAILED'),0)::float AS failed
+                COALESCE(SUM(fee_amount) FILTER (WHERE status LIKE '%FAILED%'),0)::float AS failed
            FROM transactions`);
       const byGroup = await q(
-        `SELECT group_id, COALESCE(SUM(fee_amount),0)::float AS fees, COUNT(*)::int AS payments
+        `SELECT group_id, COALESCE(SUM(fee_amount) FILTER (WHERE status NOT LIKE '%FAILED%'),0)::float AS fees,
+                COUNT(*) FILTER (WHERE status NOT LIKE '%FAILED%')::int AS payments
            FROM transactions GROUP BY group_id ORDER BY fees DESC LIMIT 50`);
       res.json({
         ok: true,

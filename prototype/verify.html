@@ -50,7 +50,7 @@ a{color:var(--gold)}
 </div>
 <script src="version.js"></script>
 <script>
-var API_BASES=['https://ajocredit-api.onrender.com','http://localhost:4000'];
+var API_BASES=['https://ajocredit.ng','http://localhost:4000'];
 function api(path,opts){opts=opts||{};var i=0;function attempt(){if(i>=API_BASES.length)return Promise.resolve(null);var url=API_BASES[i++];try{var ac=new AbortController();var to=setTimeout(function(){ac.abort()},30000);return fetch(url+path,Object.assign({},opts,{signal:ac.signal})).then(function(r){clearTimeout(to);return r.text().then(function(t){try{var b=JSON.parse(t);b.__status=r.status;return b}catch(e){return{__status:r.status,error:'Unexpected reply from the server.'}}})}).catch(function(){clearTimeout(to);return attempt()})}catch(e){return attempt()}}return attempt()}
 function q(name){var m=new RegExp('[?&]'+name+'=([^&]*)').exec(location.search);return m?decodeURIComponent(m[1].replace(/\+/g,' ')):''}
 function deviceId(){var d='';try{d=localStorage.getItem('ajo_device')||''}catch(e){}if(!d){d='web-'+Math.random().toString(36).slice(2)+Date.now().toString(36);try{localStorage.setItem('ajo_device',d)}catch(e){}}return d}

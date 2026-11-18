@@ -72,7 +72,7 @@
 </div>
 <script src="../agent.js"></script>
 <script>
-var ACC=null, GW=null;
+var ACC=null, GW=null, POLICY=null;
 function tok(){return document.getElementById('tok').value.trim();}
 (function(){
   try{
@@ -101,6 +101,7 @@ function load(){
     document.getElementById('panel').style.display='block';
     ACC=r.body.company_account||{};
     GW=r.body.gateways||{};
+    POLICY=r.body.payment_gateway||null;
     paintAcc(); paintGw();
   });
 }
@@ -118,24 +119,27 @@ function paintAcc(){
 }
 function row(k,v){return '<span>'+AJO.esc(k)+'</span><span>'+AJO.esc(String(v))+'</span>';}
 function paintGw(){
+  var head='<div class="member"><span><b>Payment policy</b><br><span class="note">'+
+    (POLICY?('PAYMENT_GATEWAY='+AJO.esc(POLICY)):'default (Flutterwave primary, Paystack live-key backup)')+
+    '</span></span>'+(POLICY==='FLUTTERWAVE_LIVE_ONLY'?'<span class="badge green">Flutterwave LIVE only</span>':'')+'</div>';
   function line(name,g){
     var bits=[];
     bits.push(g.configured?'<span class="badge green">keys set</span>':'<span class="badge red">no keys</span>');
-    if(name==='paystack') bits.push(g.live?'<span class="badge gold">LIVE</span>':'<span class="badge">test mode</span>');
+    if(name==='paystack') bits.push(g.disabled?'<span class="badge red">disabled — Flutterwave only</span>':(g.live?'<span class="badge gold">LIVE</span>':'<span class="badge">test mode</span>'));
     bits.push(g.subaccount_code||g.subaccount_id?'<span class="badge green">subaccount</span>':'<span class="badge">no subaccount</span>');
     if(g.transfer) bits.push('<span class="badge green">transfer on</span>');
     return '<div class="member"><span><b>'+AJO.esc(name==='paystack'?'Paystack':'Flutterwave')+'</b><br>'+
       '<span class="note">'+AJO.esc(g.subaccount_code||g.subaccount_id||'No split subaccount registered yet')+'</span></span>'+
       '<span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">'+bits.join(' ')+'</span></div>';
   }
-  document.getElementById('gw').innerHTML=line('paystack',GW.paystack||{})+line('flutterwave',GW.flutterwave||{});
+  document.getElementById('gw').innerHTML=head+line('paystack',GW.paystack||{})+line('flutterwave',GW.flutterwave||{});
 }
 function editAcc(){
   var a=ACC||{};
-  var bank=prompt('Bank name (e.g. GTBANK)', a.bank_name||''); if(bank===null)return;
+  var bank=prompt('Bank name (e.g. FIDELITY BANK)', a.bank_name||''); if(bank===null)return;
   var num=prompt('Account number', a.account_number||''); if(num===null)return;
   var nam=prompt('Account name', a.account_name||''); if(nam===null)return;
-  var code=prompt('Bank code (e.g. 058 for GTBANK)', a.bank_code||''); if(code===null)return;
+  var code=prompt('Bank code (e.g. 070 for FIDELITY BANK)', a.bank_code||''); if(code===null)return;
   admApi('/api/admin/company-account',{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({bank_name:bank,account_number:num,account_name:nam,bank_code:code})}).then(function(r){
     if(r&&r.ok){AJO.toast('Company account updated');load();}
