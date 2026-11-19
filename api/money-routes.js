@@ -56,6 +56,7 @@ async function installSchema(deps) {
       contribution_amount NUMERIC NOT NULL DEFAULT 0,
       fee_amount NUMERIC NOT NULL DEFAULT 0,
       total_amount NUMERIC NOT NULL DEFAULT 0,
+      gateway_fee NUMERIC NOT NULL DEFAULT 0,
       contribution_destination TEXT,
       fee_destination TEXT,
       gateway TEXT,
@@ -64,6 +65,7 @@ async function installSchema(deps) {
       reference TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS gateway_fee NUMERIC NOT NULL DEFAULT 0;
     CREATE INDEX IF NOT EXISTS transactions_group_idx ON transactions (group_id);
     CREATE INDEX IF NOT EXISTS transactions_created_idx ON transactions (created_at DESC);
 
@@ -225,14 +227,70 @@ function installRoutes(ctx) {
         const ab = await ctx.bindPhone(req, b.admin_phone);
         if (ab) return res.status(ab.status).json({ error: ab.error });
       }
+      const bankCode = String(b.bank_code || '').trim();
+      const acct = String(b.account_number || '').trim();
+      const bankName = String(b.bank_name || '').trim().slice(0, 60);
+      if (!bankCode || !/^\d{6,11}$/.test(acct)) {
+        return res.status(400).json({ error: 'Pick the pool bank and enter the pool account number.' });
+      }
+      // The pool must never be the company fee account - refuse it here with a
+      // clear message instead of letting every later payment fail on the
+      // assertNoMixing rail inside payments/init.
+      const comp = await q("SELECT account_number FROM company_account WHERE id='main'");
+      if (comp.length && comp[0].account_number && String(comp[0].account_number) === acct) {
+        return res.status(400).json({ error: 'That is the company fee account. The group pool must be a different account — contributions and fees never mix.' });
+      }
+      // The SERVER verifies the account - the client never decides that an
+      // account is verified. Flutterwave only, for launch.
+      const resolve = await fetch('https://api.flutterwave.com/v3/accounts/resolve', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + (process.env.FLUTTERWAVE_SECRET_KEY || ''), 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(20000),
+        body: JSON.stringify({ account_number: acct, account_bank: bankCode }),
+      });
+      const rj = await resolve.json();
+      if (rj.status !== 'success' || !rj.data || !rj.data.account_name) {
+        return res.status(422).json({ error: (rj.message || 'That account could not be verified.') + ' Check the details and try again.' });
+      }
+      const accountName = String(rj.data.account_name).trim();
+      // The pool needs its OWN Flutterwave subaccount so a split payment can
+      // land the contribution directly in this account (fees never do).
+      let subId = null;
+      const flwHdr = { Authorization: 'Bearer ' + (process.env.FLUTTERWAVE_SECRET_KEY || ''), 'Content-Type': 'application/json' };
+      const create = await fetch('https://api.flutterwave.com/v3/subaccounts', {
+        method: 'POST', headers: flwHdr, signal: AbortSignal.timeout(20000),
+        body: JSON.stringify({
+          business_name: accountName.slice(0, 100),
+          business_email: 'ajocredit.app@gmail.com',
+          // Documented as required on subaccount creation; the admin's phone
+          // travels with the request, otherwise a neutral placeholder.
+          business_mobile: String(b.admin_phone || '0800000000').replace(/^\+/, '').slice(0, 20),
+          account_bank: bankCode, account_number: acct, country: 'NG', permanent: true,
+          split_type: 'flat', split_value: 0, // default: keeps nothing; every payment's split is set per transaction
+        }),
+      });
+      const cj = await create.json();
+      if (cj.status === 'success' && cj.data && cj.data.id) {
+        subId = String(cj.data.id);
+      } else if (/already exists/i.test(String(cj.message || ''))) {
+        // This bank account already has a subaccount - reuse its id.
+        const list = await fetch('https://api.flutterwave.com/v3/subaccounts?page=1&limit=100', { headers: flwHdr, signal: AbortSignal.timeout(20000) });
+        const lj = await list.json();
+        const rows = (lj.data && (lj.data.data || lj.data)) || [];
+        const hit = (Array.isArray(rows) ? rows : []).find((s) => String(s.account_number) === acct && String(s.account_bank) === bankCode);
+        if (hit) subId = String(hit.id);
+      }
+      if (!subId) {
+        return res.status(502).json({ error: 'Account verified (' + accountName + ') but its pool subaccount could not be created: ' + (cj.message || 'unknown error') + '. Try again shortly.' });
+      }
       await ctx.ensurePool(ctx, gid);
       await q(
         `UPDATE group_pools SET bank_name=$1, account_number=$2, account_name=$3, bank_code=$4,
-           verified=$5, updated_at=NOW() WHERE group_id=$6`,
-        [b.bank_name || null, b.account_number || null, b.account_name || null, b.bank_code || null,
-          b.verified === true ? true : false, gid]
+           verified=TRUE, flutterwave_subaccount_id=$5, split_enabled=TRUE, transfer_enabled=TRUE, updated_at=NOW()
+         WHERE group_id=$6`,
+        [bankName || rj.data.bank_name || null, acct, accountName, bankCode, subId, gid]
       );
-      res.json({ ok: true });
+      res.json({ ok: true, account_name: accountName, subaccount_id: subId, split: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -280,6 +338,7 @@ function installRoutes(ctx) {
       const totals = await q(
         `SELECT COALESCE(SUM(contribution_amount),0)::float AS contributions,
                 COALESCE(SUM(fee_amount),0)::float AS fees,
+                COALESCE(SUM(gateway_fee),0)::float AS gateway,
                 COALESCE(SUM(total_amount),0)::float AS total,
                 COUNT(*)::int AS count
            FROM transactions
@@ -331,6 +390,7 @@ function installRoutes(ctx) {
       const totals = await q(
         `SELECT COALESCE(SUM(contribution_amount),0)::float AS contributions,
                 COALESCE(SUM(fee_amount),0)::float AS fees,
+                COALESCE(SUM(gateway_fee),0)::float AS gateway,
                 COALESCE(SUM(total_amount),0)::float AS total,
                 COUNT(*)::int AS count
            FROM transactions`);

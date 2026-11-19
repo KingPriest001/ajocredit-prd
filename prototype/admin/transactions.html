@@ -113,7 +113,8 @@ function load(){
     document.getElementById('totals').innerHTML=
       '<div><b>'+AJO.money(t.contributions||0)+'</b><span>Contributions → pools</span></div>'+
       '<div><b>'+AJO.money(t.fees||0)+'</b><span>Fees → company</span></div>'+
-      '<div><b>'+AJO.money(t.total||0)+'</b><span>Total ('+(t.count||0)+' payments)</span></div>';
+      '<div><b>'+AJO.money(t.gateway||0)+'</b><span>Gateway fees → Flutterwave</span></div>'+
+      '<div><b>'+AJO.money((t.total||0)+(t.gateway||0))+'</b><span>Total charged ('+(t.count||0)+' payments)</span></div>';
     paint();
   });
 }
@@ -128,7 +129,8 @@ function paint(){
       '<div class="amt">'+
         '<span class="lbl">💰 Contribution <span class="muted">→ group pool</span></span><span class="val pool">'+AJO.money(t.contribution_amount)+'</span>'+
         '<span class="lbl">✂️ Fee <span class="muted">→ company account</span></span><span class="val corp">'+AJO.money(t.fee_amount)+'</span>'+
-        '<span class="lbl tot">Total charged</span><span class="val tot">'+AJO.money(t.total_amount)+'</span>'+
+        '<span class="lbl">🌐 Gateway fee <span class="muted">→ Flutterwave</span></span><span class="val" style="color:#94A3B8">'+AJO.money(t.gateway_fee||0)+'</span>'+
+        '<span class="lbl tot">Total charged</span><span class="val tot">'+AJO.money(Number(t.total_amount||0)+Number(t.gateway_fee||0))+'</span>'+
       '</div>'+
       '<div class="note" style="margin-top:6px">Pool: '+AJO.esc(t.contribution_destination||'—')+' · Company: '+AJO.esc(t.fee_destination||'—')+'</div>'+
       '</div>';

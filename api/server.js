@@ -202,6 +202,7 @@ async function main() {
       await money.recordTransaction(moneyDb, {
         reference, group_id: groupId, member_id: memberId,
         contribution_amount: plan.amount, fee_amount: plan.fee, total_amount: plan.total,
+        gateway_fee: plan.gateway_fee || 0,
         contribution_destination: plan.pool ? plan.pool.label : 'pool:unconfigured',
         fee_destination: plan.company ? plan.company.label : 'company:unconfigured',
         gateway, mode: plan.mode, status: status || 'PENDING',
@@ -1032,8 +1033,27 @@ async function main() {
     const { fee, total } = feeFor(amount);
     const reference = `AJO-${Date.now()}`;
     const meta = { group_id, membership_id, cycle_id, pot: amount, fee };
-    const destination = g[0].dest_verified ? { bank: g[0].dest_bank_code, account: '••' + String(g[0].dest_account_number).slice(-4), name: g[0].dest_account_name } : null;
-    if (!destination) return res.status(422).json({ ok: false, error: 'Payout account not linked yet — ask your admin to verify it before contributing.' });
+    // Payout gate. An account can LOOK linked (its name is saved) while the
+    // verified flag is still false - rows written by older builds did that, and
+    // rejecting then showed as an instant "Nothing was taken" failure. So if
+    // the details are on file, re-verify them here and heal the flag instead
+    // of bouncing the member.
+    let destRow = g[0];
+    if (!destRow.dest_verified && destRow.dest_account_number && destRow.dest_bank_code) {
+      try {
+        const vr = await fetch('https://api.flutterwave.com/v3/accounts/resolve', {
+          method: 'POST', headers: FLW_HDR(), signal: AbortSignal.timeout(20000),
+          body: JSON.stringify({ account_number: String(destRow.dest_account_number), account_bank: String(destRow.dest_bank_code) }),
+        });
+        const vj = await vr.json();
+        if (vj.status === 'success' && vj.data && vj.data.account_name) {
+          destRow = Object.assign({}, destRow, { dest_verified: true, dest_account_name: vj.data.account_name });
+          await db.query('UPDATE groups SET dest_account_name=$1, dest_verified=TRUE WHERE id=$2', [vj.data.account_name, destRow.id]);
+        }
+      } catch (e) { /* fall through to the gate below */ }
+    }
+    const destination = destRow.dest_verified ? { bank: destRow.dest_bank_code, account: '••' + String(destRow.dest_account_number).slice(-4), name: destRow.dest_account_name } : null;
+    if (!destination) return res.status(422).json({ ok: false, error: 'The payout account is saved but not verified yet — open Payout account, tap Verify & Save once, then pay.' });
     // Where the money goes: the contribution to the group's pool, the fee to the
     // company account. The two never mix - api/money.js decides and the
     // assert below refuses to go ahead if they could.
@@ -1042,8 +1062,14 @@ async function main() {
     // Primary: Flutterwave hosted checkout link (v3 /payments). Backup: Paystack inline config.
     // 20s cap on PSP calls: a hanging PSP must never wedge the client past its own timeout.
     try {
+      // The member is charged plan.charge = contribution + ajo fee + Flutterwave's
+      // own fee. Flutterwave takes its fee off the top before paying the split
+      // legs, so charging only `total` would leave less than the legs need and
+      // the split would collapse into the main account. The legs below are
+      // still exactly contribution and fee - the pool gets the full pot, the
+      // company gets exactly its fee.
       const flwBody = {
-        tx_ref: reference, amount: total, currency: 'NGN',
+        tx_ref: reference, amount: plan.charge, currency: 'NGN',
         redirect_url: (process.env.FRONTEND_URL || 'https://ajocredit.pages.dev').replace(/\/$/, ''),
         customer: { email: email || 'member@ajocredit.ng', name: 'Ajo Member' },
         meta: meta, customizations: { title: 'AJOCREDIT Contribution' },
@@ -1061,7 +1087,8 @@ async function main() {
       if (j.status === 'success' && j.data && j.data.link) {
         await recordPaymentTx(plan, group_id, membership_id, reference, 'flutterwave', 'PENDING');
         return res.json({ ok: true, provider: 'flutterwave', link: j.data.link, reference,
-          mode: PAYS_MODE, amount, fee, total, destination, split_mode: plan.mode });
+          mode: PAYS_MODE, amount, fee, total, gateway_fee: plan.gateway_fee, charge: plan.charge,
+          destination, split_mode: plan.mode });
       }
       throw new Error('flutterwave link failed: ' + (j.message || 'unknown'));
     } catch (e) {

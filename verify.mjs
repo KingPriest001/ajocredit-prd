@@ -18,6 +18,23 @@ ok("fee 100 small→1/101", JSON.stringify(feeFor(100)) === JSON.stringify({ fee
 ok("fee 9999→99.99/10098.99", JSON.stringify(feeFor(9999)) === JSON.stringify({ fee: 99.99, total: 10098.99 }));
 ok("fee 1000000 large→5000/1005000", JSON.stringify(feeFor(1000000)) === JSON.stringify({ fee: 5000, total: 1005000 }));
 
+// --- Flutterwave gateway fee pass-through (api/money.js) --------------------
+// Flutterwave takes its fee OFF THE TOP before the split legs are paid, so the
+// member is charged the ajo total + this fee. The invariant that matters: the
+// charge must always leave at least the settlement behind, or the flat legs
+// (pot + fee) exceed it and Flutterwave dumps everything into the main account.
+const { gatewayFeeFor, chargeFor } = (await import('./api/money.js')).default;
+ok("flw fee 505→10.86 (2% + 7.5% VAT)", gatewayFeeFor(505) === 10.86);
+ok("flw fee 516.2→11.1", gatewayFeeFor(516.2) === 11.1);
+ok("flw fee 10000→265 (VAT + ₦50 stamp duty)", gatewayFeeFor(10000) === 265);
+ok("flw fee 100000→2200 (2% capped at ₦2,000 + duty)", gatewayFeeFor(100000) === 2200);
+ok("flw fee 200000→2200 (cap holds)", gatewayFeeFor(200000) === 2200);
+ok("charge 505→516.2 (₦500 pot + ₦5 fee + ₦11.2 processing)", chargeFor(505) === 516.2);
+for (const s of [101, 505, 2020, 9785, 10100, 50250, 501000, 2005000]) {
+  const c = chargeFor(s);
+  ok(`charge ${s} leaves ≥ ${s} after Flutterwave (got ${c} - ${gatewayFeeFor(c)})`, c > 0 && c - gatewayFeeFor(c) >= s);
+}
+
 // --- ledger idempotency ---
 const store = new Map();
 const append = (e) => { if (store.has(e.k)) return store.get(e.k); store.set(e.k, e); return e; };
