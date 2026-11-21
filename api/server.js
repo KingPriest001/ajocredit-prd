@@ -68,7 +68,20 @@ async function main() {
     UPDATE groups SET invite_code='AJ-4821' WHERE id='g-aj4821' AND invite_code IS NULL;
     ALTER TABLE contributions ALTER COLUMN fee TYPE NUMERIC USING fee::NUMERIC;
     ALTER TABLE contributions ALTER COLUMN total TYPE NUMERIC USING total::NUMERIC;
-    ALTER TABLE ledger_entries ALTER COLUMN amount TYPE NUMERIC USING amount::NUMERIC;`);
+    ALTER TABLE ledger_entries ALTER COLUMN amount TYPE NUMERIC USING amount::NUMERIC;
+    -- How the winner of a cycle is picked. 'admin' = the treasurer/admin marks
+    -- the winner (the default), 'rotate' = next slot in the frozen payout
+    -- order, 'random' = a draw among the members who actually paid.
+    ALTER TABLE groups ADD COLUMN IF NOT EXISTS winner_mode TEXT NOT NULL DEFAULT 'admin';
+    -- Payout status machine: PENDING > PROCESSING > PAID (or FAILED). The
+    -- winner's bank account is stored on the payout itself.
+    ALTER TABLE payouts ADD COLUMN IF NOT EXISTS bank_code TEXT;
+    ALTER TABLE payouts ADD COLUMN IF NOT EXISTS bank_account_number TEXT;
+    ALTER TABLE payouts ADD COLUMN IF NOT EXISTS bank_account_name TEXT;
+    ALTER TABLE payouts ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
+    ALTER TABLE payouts ADD COLUMN IF NOT EXISTS failure_reason TEXT;
+    ALTER TABLE payouts ADD COLUMN IF NOT EXISTS transfer_reference TEXT;
+    ALTER TABLE payouts ADD COLUMN IF NOT EXISTS fee_remitted NUMERIC NOT NULL DEFAULT 0;`);
   // The agent programme: agent records, group migration and commission.
   // This runs before `q` exists, so it talks to the driver directly.
   await agent.installSchema({
@@ -84,7 +97,10 @@ async function main() {
   const PORT = process.env.PORT || 4000;
   const app = express();
   app.use(cors());
-  app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
+  // 6mb: a receipt photo is uploaded as a data URL inside JSON. The rest of
+  // the API sends a few hundred bytes, so this limit only ever matters on the
+  // claim route.
+  app.use(express.json({ limit: '6mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
   const crypto = require('crypto');
   const PAYS_MODE = process.env.PAYMENTS_MODE || 'direct';
   // Launch gateway policy: PAYMENT_GATEWAY=FLUTTERWAVE_LIVE_ONLY means every
@@ -127,8 +143,8 @@ async function main() {
   const moneyQ = async (text, params) => (params && params.length ? q(text, params) : exec(text));
   const moneyDb = { q, exec: moneyQ };
 
-  async function routingPlan(groupId, amount, fee, gateway) {
-    return money.plan(moneyDb, { groupId, amount, fee, gateway });
+  async function routingPlan(groupId, amount, fee, gateway, channel) {
+    return money.plan(moneyDb, { groupId, amount, fee, gateway, channel });
   }
 
   // Paystack splits are percentage based, so one split is created per exact
@@ -249,6 +265,67 @@ async function main() {
   async function isAdmin(userId, groupId) {
     const r = await q(`SELECT id FROM memberships WHERE user_id=$1 AND group_id=$2 AND role='admin' AND status='ACTIVE'`, [userId, groupId]);
     return r.length > 0;
+  }
+  // The treasurer reviews direct-transfer receipts. A group admin is always a
+  // treasurer; a group may also promote one of its members to 'treasurer' so
+  // the admin does not have to eyeball every screenshot.
+  async function isTreasurer(userId, groupId) {
+    const r = await q(`SELECT id FROM memberships WHERE user_id=$1 AND group_id=$2
+        AND role IN ('admin','treasurer') AND status='ACTIVE'`, [userId, groupId]);
+    return r.length > 0;
+  }
+  async function bindTreasurer(req, groupId) {
+    if (!authOn()) return null;
+    if (!req.user) return { status: 401, error: 'sign in required' };
+    if (!(await isTreasurer(req.user, groupId))) {
+      return { status: 403, error: 'only the group treasurer or admin can review payments' };
+    }
+    return null;
+  }
+  // How this group picks the winner of a cycle — set at group creation.
+  //   admin    the admin/treasurer marks the winner (DEFAULT)
+  //   rotate   the next slot in the frozen payout order
+  //   random   a draw among the members who actually paid
+  async function beneficiaryFor(group, cycleId, explicitId) {
+    if (explicitId) {
+      const b = await q(`SELECT * FROM memberships WHERE id=$1 AND group_id=$2 AND status='ACTIVE'`, [explicitId, group.id]);
+      return b.length ? b[0] : null;
+    }
+    if ((group.winner_mode || 'admin') === 'random') {
+      const paid = await q(
+        `SELECT id FROM memberships m
+          WHERE m.group_id=$1 AND m.status='ACTIVE'
+            AND EXISTS (SELECT 1 FROM contributions c
+                         WHERE c.membership_id=m.id AND c.cycle_id=$2 AND c.status='CONFIRMED')
+          ORDER BY m.joined_at`, [group.id, cycleId]);
+      const field = paid.length ? paid : await q(
+        `SELECT id FROM memberships WHERE group_id=$1 AND status='ACTIVE' ORDER BY joined_at`, [group.id]);
+      if (!field.length) return null;
+      const picked = field[crypto.randomInt(field.length)];
+      const row = await q('SELECT * FROM memberships WHERE id=$1', [picked.id]);
+      return row.length ? row[0] : null;
+    }
+    // 'admin' and 'rotate' both follow the frozen payout order (slot 1 first).
+    const b = await q(`SELECT * FROM memberships WHERE group_id=$1 AND status='ACTIVE'
+        ORDER BY payout_slot NULLS LAST, joined_at LIMIT 1`, [group.id]);
+    return b.length ? b[0] : null;
+  }
+  // The ajo fees that are physically sitting in a group's pool BANK account
+  // because the member used Direct Transfer: contribution and fee arrived in
+  // one transfer, the ledger split them, and the fee half is company money that
+  // has not reached FIDELITY yet. It is remitted when the cycle pays out —
+  // it never belongs to the pool.
+  async function feesHeldInPool(groupId) {
+    const r = await q(
+      `SELECT COALESCE(SUM(c.fee),0)::float AS fee
+         FROM contributions c JOIN cycles cy ON cy.id = c.cycle_id
+        WHERE cy.group_id=$1 AND c.status='CONFIRMED' AND c.method='direct_transfer'`, [groupId]);
+    const sent = await q(
+      `SELECT COALESCE(SUM(amount),0)::float AS amt FROM fee_remittances
+        WHERE group_id=$1 AND status IN ('PENDING','CONFIRMED')`, [groupId]);
+    const booked = r.length ? Number(r[0].fee) || 0 : 0;
+    const done = sent.length ? Number(sent[0].amt) || 0 : 0;
+    return Math.max(0, Math.round((booked - done) * 100) / 100);
   }
   // --- Identity binding (dual-mode) -----------------------------------------
   // Every protected route used to trust a client-supplied phone (admin_phone,
@@ -1033,13 +1110,54 @@ async function main() {
     const { fee, total } = feeFor(amount);
     const reference = `AJO-${Date.now()}`;
     const meta = { group_id, membership_id, cycle_id, pot: amount, fee };
+    // ---- which channel is the member paying on? ---------------------------
+    //   gateway          card / pay-with-transfer via Flutterwave → gateway fee
+    //   direct_transfer  straight into the group's pool bank account → ₦0
+    //   virtual_account  bank transfer into a Flutterwave VA        → ₦0
+    // The ajo fee (1% ≤ ₦10,000, 0.5% above) applies on EVERY channel. Only the
+    // gateway fee differs, and the member always sees this breakdown first.
+    let channel = String((req.body || {}).channel || 'gateway').toLowerCase().trim().replace(/[\s-]+/g, '_');
+    if (channel === 'card' || channel === 'transfer' || channel === 'pay_with_transfer') channel = 'gateway';
+    if (channel !== 'gateway' && channel !== 'direct_transfer' && channel !== 'virtual_account') {
+      return res.status(400).json({ error: "channel must be 'gateway', 'direct_transfer' or 'virtual_account'" });
+    }
+    // Direct Transfer needs somewhere to transfer TO — the group's own pool
+    // account. Without it the member would be sending money blind.
+    let poolRow = null;
+    if (channel === 'direct_transfer') {
+      const pr = await q('SELECT * FROM group_pools WHERE group_id=$1', [group_id]);
+      poolRow = pr.length ? pr[0] : null;
+      if (!poolRow || !poolRow.verified || !poolRow.account_number) {
+        return res.status(422).json({
+          ok: false,
+          error: 'This group has no verified pool account yet. Ask the group admin to save and verify the Group pool account — until then use Pay with Transfer (card) or Virtual account.',
+        });
+      }
+    }
+    // Where each naira lands, and what the member pays on top of the ajo fee.
+    const plan = await routingPlan(group_id, amount, fee, channel === 'direct_transfer' ? 'bank' : 'flutterwave', channel);
+    money.assertNoMixing(plan);
+    const feeBreakdown = {
+      channel,
+      amount,                 // contribution — the whole of it reaches the pool
+      fee,                    // AJOCREDIT ajo fee
+      total,                  // contribution + ajo fee
+      gateway_fee: plan.gateway_fee || 0,   // ₦0 on direct transfer + virtual account
+      charge: plan.charge,    // what the member actually parts with
+      breakdown: [
+        { label: 'Contribution to the group pool', amount, to: 'group_pool' },
+        { label: 'AJOCREDIT ajo fee', amount: fee, to: 'company' },
+        { label: plan.gateway_fee > 0 ? 'Gateway / processing fee' : 'Gateway fee', amount: plan.gateway_fee || 0,
+          to: plan.gateway_fee > 0 ? 'flutterwave' : 'none' },
+      ],
+    };
     // Payout gate. An account can LOOK linked (its name is saved) while the
     // verified flag is still false - rows written by older builds did that, and
     // rejecting then showed as an instant "Nothing was taken" failure. So if
     // the details are on file, re-verify them here and heal the flag instead
     // of bouncing the member.
     let destRow = g[0];
-    if (!destRow.dest_verified && destRow.dest_account_number && destRow.dest_bank_code) {
+    if (channel === 'gateway' && !destRow.dest_verified && destRow.dest_account_number && destRow.dest_bank_code) {
       try {
         const vr = await fetch('https://api.flutterwave.com/v3/accounts/resolve', {
           method: 'POST', headers: FLW_HDR(), signal: AbortSignal.timeout(20000),
@@ -1053,12 +1171,72 @@ async function main() {
       } catch (e) { /* fall through to the gate below */ }
     }
     const destination = destRow.dest_verified ? { bank: destRow.dest_bank_code, account: '••' + String(destRow.dest_account_number).slice(-4), name: destRow.dest_account_name } : null;
-    if (!destination) return res.status(422).json({ ok: false, error: 'The payout account is saved but not verified yet — open Payout account, tap Verify & Save once, then pay.' });
+    // The other two channels do not settle into that account: Direct Transfer
+    // lands in the group's pool account, a Virtual Account settles with
+    // Flutterwave. Only the gateway checkout needs it.
+    if (channel === 'gateway' && !destination) return res.status(422).json({ ok: false, error: 'The payout account is saved but not verified yet — open Payout account, tap Verify & Save once, then pay.' });
     // Where the money goes: the contribution to the group's pool, the fee to the
     // company account. The two never mix - api/money.js decides and the
-    // assert below refuses to go ahead if they could.
-    const plan = await routingPlan(group_id, amount, fee, 'flutterwave');
-    money.assertNoMixing(plan);
+    // assert above refuses to go ahead if they could.
+    if (channel === 'direct_transfer') {
+      // No gateway is involved: the member sends contribution + ajo fee in one
+      // transfer to the pool account and uploads the receipt. NOTHING enters
+      // the pool balance until the treasurer confirms the claim.
+      await recordPaymentTx(plan, group_id, membership_id, reference, 'bank', 'PENDING');
+      const naira = (n) => '₦' + (Math.round(Number(n) * 100) / 100).toLocaleString('en-NG');
+      return res.json(Object.assign({
+        ok: true, provider: 'bank_transfer', reference,
+        pool: {
+          bank_name: poolRow.bank_name, account_number: poolRow.account_number,
+          account_name: poolRow.account_name, bank_code: poolRow.bank_code,
+        },
+        next: 'upload_receipt',
+        note: 'Transfer the total below, then upload the receipt. The treasurer confirms it before it counts.',
+        instructions: [
+          `Transfer ${naira(plan.charge)} to ${poolRow.account_name} — ${poolRow.bank_name}, ${poolRow.account_number}.`,
+          'Send it from your own bank account so the name matches your membership.',
+          'Upload the transfer receipt here. Only the group treasurer can confirm it.',
+        ],
+      }, feeBreakdown));
+    }
+    if (channel === 'virtual_account') {
+      // Flutterwave issues a throw-away account for this exact amount. No card,
+      // so no gateway fee — and the transfer that lands is auto-confirmed by
+      // Flutterwave's charge.completed webhook, no receipt needed.
+      try {
+        const r = await fetch('https://api.flutterwave.com/v3/virtual-account-numbers', {
+          method: 'POST', headers: FLW_HDR(), signal: AbortSignal.timeout(20000),
+          body: JSON.stringify({ amount: plan.charge, email: email || 'member@ajocredit.ng', tx_ref: reference }),
+        });
+        const j = await r.json();
+        const d = j && j.data ? j.data : null;
+        const vaNumber = d && (d.account_number || (d.recipients && d.recipients[0] && d.recipients[0].account_number));
+        if (j.status !== 'success' || !vaNumber) throw new Error((j && j.message) || 'virtual account unavailable');
+        await q(`INSERT INTO payment_vas (reference, group_id, membership_id, cycle_id, amount, fee, total,
+                  va_number, va_bank, va_bank_name, status)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PENDING') ON CONFLICT (reference) DO NOTHING`,
+          [reference, group_id, membership_id, cycle_id, amount, fee, total, String(vaNumber),
+            d.bank_name || d.bank || null, d.account_name || null]);
+        await recordPaymentTx(plan, group_id, membership_id, reference, 'flutterwave', 'PENDING');
+        const naira = (n) => '₦' + (Math.round(Number(n) * 100) / 100).toLocaleString('en-NG');
+        return res.json(Object.assign({
+          ok: true, provider: 'flutterwave_virtual_account', reference,
+          va: { account_number: String(vaNumber), bank_name: d.bank_name || d.bank || 'Flutterwave',
+                account_name: d.account_name || null },
+          next: 'transfer',
+          note: 'Transfer the total into this account. It confirms automatically — no receipt needed.',
+          instructions: [
+            `Transfer ${naira(plan.charge)} to ${d.account_name || 'AJOCREDIT'} — ${d.bank_name || 'Flutterwave'}, ${vaNumber}.`,
+            'This account is for THIS payment only. Anyone may fund it; the reference ties it to you.',
+          ],
+        }, feeBreakdown));
+      } catch (e) {
+        return res.status(502).json({
+          ok: false, channel,
+          error: 'We could not create a virtual account right now — nothing was charged. Try Pay with Transfer instead. (' + (e && e.message) + ')',
+        });
+      }
+    }
     // Primary: Flutterwave hosted checkout link (v3 /payments). Backup: Paystack inline config.
     // 20s cap on PSP calls: a hanging PSP must never wedge the client past its own timeout.
     try {
@@ -1088,7 +1266,7 @@ async function main() {
         await recordPaymentTx(plan, group_id, membership_id, reference, 'flutterwave', 'PENDING');
         return res.json({ ok: true, provider: 'flutterwave', link: j.data.link, reference,
           mode: PAYS_MODE, amount, fee, total, gateway_fee: plan.gateway_fee, charge: plan.charge,
-          destination, split_mode: plan.mode });
+          destination, split_mode: plan.mode, channel: 'gateway', breakdown: feeBreakdown.breakdown });
       }
       throw new Error('flutterwave link failed: ' + (j.message || 'unknown'));
     } catch (e) {
@@ -1118,7 +1296,9 @@ async function main() {
         return res.json({ ok: true, provider: 'paystack', mode: PAYS_MODE, amount, fee, total, amount_kobo: Math.round(total * 100),
           paystack_key: pk, split_code: psInit ? psInit.split_code : undefined,
           subaccount: psInit ? psInit.subaccount : undefined,
-          reference: psRef, destination, metadata: meta, split_mode: psPlan.mode });
+          reference: psRef, destination, metadata: meta, split_mode: psPlan.mode,
+          channel: 'gateway', gateway_fee: psPlan.gateway_fee || 0, charge: psPlan.charge,
+          breakdown: feeBreakdown.breakdown });
       }
       // Flutterwave hiccup while Paystack isn't live yet: fail cleanly, never silently downgrade.
       return res.json({ ok: false, error: 'Payment provider is busy — no charge was made. Please try again in a moment.' });
@@ -1136,12 +1316,35 @@ async function main() {
     const ref = data.tx_ref || data.txRef || '';
     try {
       if (ok && ref) {
+        // A Virtual Account credit arrives with no useful meta — the row WE
+        // created when the account was issued carries the group, member, cycle
+        // and the exact split. Rehydrate the metadata so a VA credit books the
+        // same way a checkout charge does.
+        const va = await q('SELECT * FROM payment_vas WHERE reference=$1', [ref]);
+        if (va.length && va[0].status !== 'CONFIRMED') {
+          const paid = Number(data.amount) || 0;
+          const expected = Number(va[0].total) || 0;
+          if (paid && expected && paid + 0.001 < expected) {
+            // Under-paid: never book it as a contribution.
+            await q(`UPDATE payment_vas SET status='UNDERPAID' WHERE reference=$1`, [ref]);
+            await q(`UPDATE transactions SET status='FAILED' WHERE reference=$1`, [ref]);
+            await db.query(`UPDATE contributions SET status='FAILED' WHERE reference=$1`, [ref]);
+            return res.json({ ok: true, underpaid: ref, expected, received: paid });
+          }
+          md.group_id = md.group_id || va[0].group_id;
+          md.membership_id = md.membership_id || va[0].membership_id;
+          md.cycle_id = md.cycle_id || va[0].cycle_id;
+          md.pot = Number(md.pot) || Number(va[0].amount) || 0;
+          md.fee = Number(md.fee) || Number(va[0].fee) || 0;
+          md.method = 'virtual_account';
+        }
         // The money is confirmed: mark the transaction confirmed (and move the
         // fee to the company account in two-step mode) BEFORE the contribution
         // is booked as paid.
         await confirmPaymentTx(ref, 'flutterwave');
-        await confirmContribution(md, ref, 'flutterwave');
-        res.json({ ok: true, confirmed: ref });
+        await confirmContribution(md, ref, (md && md.method) || 'flutterwave');
+        if (va.length) await q(`UPDATE payment_vas SET status='CONFIRMED' WHERE reference=$1`, [ref]);
+        res.json({ ok: true, confirmed: ref, channel: va.length ? 'virtual_account' : 'gateway' });
       }
       else { await db.query(`UPDATE contributions SET status='FAILED' WHERE reference=$1`, [ref]); await q('UPDATE transactions SET status=$1 WHERE reference=$2', ['FAILED', ref]); res.json({ ok: true, marked_failed: ref }); }
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
@@ -1213,7 +1416,7 @@ async function main() {
   });
 
   app.post('/api/groups', auth, async (req, res) => {
-    const { name, amount, size, frequency, payout_mode, admin_phone, admin_name } = req.body || {};
+    const { name, amount, size, frequency, payout_mode, winner_mode, admin_phone, admin_name } = req.body || {};
     const ab = await bindPhone(req, admin_phone);
     if (ab) return res.status(ab.status).json({ error: ab.error });
     if (!name || String(name).trim().length < 3) return res.status(400).json({ error: 'group name needs at least 3 characters' });
@@ -1223,6 +1426,12 @@ async function main() {
     if (!phone) return res.status(400).json({ error: 'valid Nigerian phone required (e.g. 08031234567)' });
     const aname = String(admin_name || '').trim();
     if (aname.length < 2) return res.status(400).json({ error: 'your name is required' });
+    // How this group picks its cycle winner:
+    //   admin    the admin/treasurer marks the winner — the DEFAULT
+    //   rotate   the next slot in the payout order
+    //   random   a draw among the members who paid
+    const wmode = ['admin', 'rotate', 'random'].includes(String(winner_mode || '').toLowerCase())
+      ? String(winner_mode).toLowerCase() : 'admin';
     try {
       const now = Date.now();
       let u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
@@ -1236,8 +1445,9 @@ async function main() {
       const icode = await newInviteCode();
     // Every group gets its own pool wallet - this is where its contributions land.
     await moneyRoutes.ensurePool({ q }, gid);
-      await q(`INSERT INTO groups (id, name, type, amount, size, frequency, payout_mode, status, rules, invite_code) VALUES ($1,$2,'ROTATIONAL',$3,$4,$5,$6,'FORMING','{\"grace_hours\":48}',$7)`,
-        [gid, String(name).trim(), +amount, nsize, frequency || 'Weekly', payout_mode || 'random', icode]);
+      await q(`INSERT INTO groups (id, name, type, amount, size, frequency, payout_mode, status, rules, invite_code, winner_mode)
+        VALUES ($1,$2,'ROTATIONAL',$3,$4,$5,$6,'FORMING','{\"grace_hours\":48}',$7,$8)`,
+        [gid, String(name).trim(), +amount, nsize, frequency || 'Weekly', payout_mode || 'random', icode, wmode]);
       await q(`INSERT INTO memberships (id, user_id, group_id, role, status) VALUES ($1,$2,$3,'admin','ACTIVE')`, [`m-${now}`, u[0].id, gid]);
       // Cycle 1 must exist at birth: contributions.cycle_id is a real FK — without this
       // every later contribution/webhook confirm for a new group fails with FK violation.
@@ -1446,23 +1656,52 @@ async function main() {
 
   // ---------------- End-of-cycle payout (maker initiates, checker approves) ----------------
   // Non-custodial: a payout records the group handing the pot to the cycle's
-  // beneficiary from the group's OWN bank account. Maker ≠ checker (THREAT-MODEL T5).
+  // beneficiary from the group's OWN pool account. Maker ≠ checker (THREAT-MODEL T5).
+  //
+  // Status machine — exactly one payout per cycle, ever (idempotency_key):
+  //   PENDING     initiated; the winner and their bank account are on file
+  //   PROCESSING  a second person approved; the pot is ALREADY out of the pool
+  //               balance (poolBalance subtracts PROCESSING and PAID)
+  //   PAID        the money reached the winner's bank account: the cycle closes
+  //               and the next one opens
+  //   FAILED      the transfer did not go through; the pot goes straight back
+  //               into the pool balance and the payout can be approved again
   async function collectedPot(cycleId) {
     const r = await q(`SELECT COALESCE(SUM(amount),0)::int AS pot FROM contributions WHERE cycle_id=$1 AND status='CONFIRMED'`, [cycleId]);
     return r.length ? r[0].pot : 0;
   }
   app.get('/api/payouts/:groupId', auth, async (req, res) => {
     try {
-      const cy = await q('SELECT * FROM cycles WHERE group_id=$1 ORDER BY seq DESC LIMIT 1', [req.params.groupId]);
-      if (!cy.length) return res.json({ ok: true, payout: null, cycle: null });
+      const gid = req.params.groupId;
+      const g = await q('SELECT * FROM groups WHERE id=$1', [gid]);
+      if (!g.length) return res.status(404).json({ ok: false, error: 'group not found' });
+      const cy = await q('SELECT * FROM cycles WHERE group_id=$1 ORDER BY seq DESC LIMIT 1', [gid]);
+      if (!cy.length) return res.json({ ok: true, payout: null, cycle: null, winner_mode: g[0].winner_mode || 'admin' });
       const p = await q('SELECT * FROM payouts WHERE cycle_id=$1', [cy[0].id]);
       const ben = p.length ? await q('SELECT u.name FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.id=$1', [p[0].beneficiary_id]) : [];
+      // Every active member, so the admin can mark the winner when the group
+      // runs on winner_mode='admin'. Ordered by the frozen payout order.
+      const members = await q(`SELECT m.id, u.name, m.payout_slot FROM memberships m
+        JOIN users u ON u.id=m.user_id
+        WHERE m.group_id=$1 AND m.status='ACTIVE'
+        ORDER BY m.payout_slot NULLS LAST, m.joined_at`, [gid]);
+      const counts = await q(`SELECT status, COUNT(*)::int AS n FROM payouts WHERE group_id=$1 GROUP BY status`, [gid]);
+      const statuses = {};
+      for (const c of counts) statuses[c.status] = c.n;
       res.json({ ok: true, cycle: cy[0], collected: await collectedPot(cy[0].id), payout: p[0] || null,
-        beneficiary_name: ben.length ? ben[0].name : null });
+        beneficiary_name: ben.length ? ben[0].name : null,
+        winner_mode: g[0].winner_mode || 'admin',
+        payout_statuses: statuses,
+        members,
+        // Direct Transfer fees are still sitting in the pool bank account.
+        // They are company money and must reach FIDELITY — reported here so the
+        // treasurer remits them with the payout instead of forgetting.
+        fee_due_to_company: await feesHeldInPool(gid) });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
   app.post('/api/payouts/initiate', auth, async (req, res) => {
-    const { group_id, cycle_id, maker_phone, beneficiary_membership_id, amount } = req.body || {};
+    const { group_id, cycle_id, maker_phone, beneficiary_membership_id, amount,
+      bank_code, bank_account_number, bank_account_name } = req.body || {};
     const pb = await bindPhone(req, maker_phone);
     if (pb) return res.status(pb.status).json({ error: pb.error });
     const phone = normPhone(maker_phone);
@@ -1471,38 +1710,66 @@ async function main() {
     try {
       const u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
       if (!u.length || !(await isAdmin(u[0].id, group_id))) return res.status(403).json({ error: 'only a group admin can initiate a payout' });
+      const g = await q('SELECT * FROM groups WHERE id=$1', [group_id]);
+      if (!g.length) return res.status(404).json({ error: 'group not found' });
       const cy = cycle_id
         ? await q('SELECT * FROM cycles WHERE id=$1 AND group_id=$2', [cycle_id, group_id])
         : await q('SELECT * FROM cycles WHERE group_id=$1 ORDER BY seq DESC LIMIT 1', [group_id]);
       if (!cy.length) return res.status(404).json({ error: 'no cycle found for this group' });
       const cyc = cy[0];
-      // Beneficiary defaults to the next payout slot (frozen order, slot 1 first).
-      let ben = beneficiary_membership_id
-        ? await q(`SELECT * FROM memberships WHERE id=$1 AND group_id=$2 AND status='ACTIVE'`, [beneficiary_membership_id, group_id])
-        : await q(`SELECT * FROM memberships WHERE group_id=$1 AND status='ACTIVE' ORDER BY payout_slot NULLS LAST, joined_at LIMIT 1`, [group_id]);
-      if (!ben.length) return res.status(422).json({ error: 'no active member can receive this payout — set the payout order first' });
+      // The winner, chosen the way THIS group was set up to choose one:
+      // admin marks / rotate the order / random draw among those who paid.
+      if (beneficiary_membership_id) {
+        const chk = await q(`SELECT id FROM memberships WHERE id=$1 AND group_id=$2 AND status='ACTIVE'`, [beneficiary_membership_id, group_id]);
+        if (!chk.length) return res.status(404).json({ error: 'that member is not active in this group' });
+      }
+      const ben = await beneficiaryFor(g[0], cyc.id, beneficiary_membership_id);
+      if (!ben) return res.status(422).json({ error: 'no active member can receive this payout — set the payout order first' });
+      // The money can only be sent to an account, so the winner's bank details
+      // are part of starting the payout — not something to discover at the end.
+      const bCode = String(bank_code || '').trim();
+      const bAcct = String(bank_account_number || '').trim();
+      const bName = String(bank_account_name || '').trim();
+      if (!bCode || !/^\d{6,11}$/.test(bAcct)) {
+        return res.status(422).json({
+          error: "Add the winner's bank first: bank, account number and account name are required to start a payout.",
+        });
+      }
       const pot = await collectedPot(cyc.id);
       const amt = Number.isFinite(+amount) && +amount > 0 ? Math.floor(+amount) : pot;
       // Guards: shortfall blocked, duplicate payout blocked.
       if (pot <= 0) return res.status(409).json({ error: 'nothing collected for this cycle yet — payout blocked' });
       if (amt > pot) return res.status(409).json({ error: `shortfall blocked: pot is ₦${pot.toLocaleString()}, cannot pay ₦${amt.toLocaleString()}` });
       const dup = await q(`SELECT id, status FROM payouts WHERE idempotency_key=$1`, [`payout:${cyc.id}`]);
-      if (dup.length) return res.status(409).json({ error: `payout already ${dup[0].status.toLowerCase()} for this cycle`, payout_id: dup[0].id });
+      if (dup.length) {
+        const hint = dup[0].status === 'FAILED'
+          ? ' — this payout failed, approve it again instead of starting a new one'
+          : '';
+        return res.status(409).json({ error: `payout already ${dup[0].status.toLowerCase()} for this cycle${hint}`, payout_id: dup[0].id });
+      }
       const pid = `po-${Date.now()}`;
-      await q(`INSERT INTO payouts (id, group_id, cycle_id, beneficiary_id, amount, status, idempotency_key, initiated_by) VALUES ($1,$2,$3,$4,$5,'PENDING',$6,$7)`,
-        [pid, group_id, cyc.id, ben[0].id, amt, `payout:${cyc.id}`, u[0].id]);
+      await q(`INSERT INTO payouts (id, group_id, cycle_id, beneficiary_id, amount, status, idempotency_key, initiated_by,
+                bank_code, bank_account_number, bank_account_name)
+        VALUES ($1,$2,$3,$4,$5,'PENDING',$6,$7,$8,$9,$10)`,
+        [pid, group_id, cyc.id, ben.id, amt, `payout:${cyc.id}`, u[0].id, bCode, bAcct, bName || null]);
       await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'payout.initiate','payout',$3)`, [`al-${Date.now()}`, u[0].id, pid]);
       // All admins get pinged that a second pair of eyes is needed.
-      const bn = await q('SELECT u.name FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.id=$1', [ben[0].id]);
+      const bn = await q('SELECT u.name FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.id=$1', [ben.id]);
       const admins = await q(`SELECT user_id FROM memberships WHERE group_id=$1 AND role='admin' AND status='ACTIVE'`, [group_id]);
       for (const a of admins) await notifyUser(a.user_id, 'payout_pending', 'Payout awaiting approval ⏳',
         `₦${amt.toLocaleString()} to ${bn.length ? bn[0].name : 'beneficiary'} (cycle ${cyc.seq}) is ready. A second person must approve — maker ≠ checker.`);
-      res.json({ ok: true, payout_id: pid, status: 'PENDING', amount: amt, beneficiary: bn.length ? bn[0].name : null,
+      res.json({ ok: true, payout_id: pid, status: 'PENDING', amount: amt,
+        beneficiary: bn.length ? bn[0].name : null, beneficiary_membership_id: ben.id,
+        winner_mode: g[0].winner_mode || 'admin',
+        bank: { bank_code: bCode, account_number: bAcct, account_name: bName || null },
         note: 'awaiting a second approver (maker ≠ checker)' });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
+  // Checker approves: PENDING → PROCESSING. The pot leaves the pool balance
+  // right here — before a single naira has moved — so nobody can spend money
+  // that is already promised to the winner.
   app.post('/api/payouts/approve', auth, async (req, res) => {
-    const { payout_id, checker_phone } = req.body || {};
+    const { payout_id, checker_phone, bank_code, bank_account_number, bank_account_name } = req.body || {};
     const cb = await bindPhone(req, checker_phone);
     if (cb) return res.status(cb.status).json({ error: cb.error });
     const phone = normPhone(checker_phone);
@@ -1512,7 +1779,11 @@ async function main() {
       const p = await q('SELECT * FROM payouts WHERE id=$1', [payout_id]);
       if (!p.length) return res.status(404).json({ error: 'payout not found' });
       const po = p[0];
-      if (po.status !== 'PENDING') return res.status(409).json({ error: `payout already ${po.status.toLowerCase()}` });
+      // A FAILED payout may be approved again (same payout, no second pot); a
+      // PROCESSING or PAID one may never be approved twice.
+      if (po.status !== 'PENDING' && po.status !== 'FAILED') {
+        return res.status(409).json({ error: `payout already ${po.status.toLowerCase()} — it cannot be approved again` });
+      }
       const u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
       // Checker must be an active member of the group — and never the maker.
       const cm = u.length ? await q(`SELECT id FROM memberships WHERE user_id=$1 AND group_id=$2 AND status='ACTIVE'`, [u[0].id, po.group_id]) : [];
@@ -1521,13 +1792,65 @@ async function main() {
       // Re-check the shortfall at approval time (contributions may have been disputed).
       const pot = await collectedPot(po.cycle_id);
       if (po.amount > pot) return res.status(409).json({ error: `shortfall at approval: pot is ₦${pot.toLocaleString()}, payout ₦${po.amount.toLocaleString()} — blocked` });
+      // The winner's account must be on file — the checker may correct it here.
+      const bCode = String(bank_code || po.bank_code || '').trim();
+      const bAcct = String(bank_account_number || po.bank_account_number || '').trim();
+      const bName = String(bank_account_name || po.bank_account_name || '').trim();
+      if (!bCode || !/^\d{6,11}$/.test(bAcct)) {
+        return res.status(422).json({ error: "The winner's bank details are missing — add them before approving." });
+      }
       const ben = await q('SELECT u.name, u.id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.id=$1', [po.beneficiary_id]);
-      await q(`UPDATE payouts SET status='APPROVED', approved_by=$1, executed_at=NOW() WHERE id=$2`, [u[0].id, po.id]);
+      await q(`UPDATE payouts SET status='PROCESSING', approved_by=$1, processed_at=NOW(),
+                  bank_code=$2, bank_account_number=$3, bank_account_name=$4 WHERE id=$5`,
+        [u[0].id, bCode, bAcct, bName || null, po.id]);
       await q(`INSERT INTO ledger_entries (id, group_id, debit_acct, credit_acct, amount, type, ref_id, idempotency_key, status, hash)
         VALUES ($1,$2,$3,$4,$5,'payout',$6,$7,'CONFIRMED',$8) ON CONFLICT (idempotency_key) DO NOTHING`,
         [`le-${Date.now()}p`, po.group_id, `pot:${po.group_id}`, `member:${po.beneficiary_id}`, po.amount, po.id, `payout:${po.id}`, `h${Date.now()}p`]);
       await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'payout.approve','payout',$3)`, [`al-${Date.now()}`, u[0].id, po.id]);
-      // Close this cycle and open the next one (same cadence as the group's frequency).
+      // Direct Transfer fees are still sitting in the pool's BANK account.
+      // They were never the pool's money — say so loudly while the treasurer
+      // is sending the pot out, so both transfers go together.
+      const feeDue = await feesHeldInPool(po.group_id);
+      await notifyGroup(po.group_id, 'payout', '💸 Payout approved — send the transfer',
+        `₦${po.amount.toLocaleString()} to ${ben.length ? ben[0].name : 'the beneficiary'} is approved and already out of the pool balance. ` +
+        `Send it from the pool account to ${bName || 'the winner'} · ${bAcct}.` +
+        (feeDue > 0 ? ` Also send ₦${feeDue.toLocaleString()} of AJOCREDIT fees to the company account.` : ''));
+      res.json({ ok: true, status: 'PROCESSING', payout_id: po.id, amount: po.amount,
+        beneficiary: ben.length ? ben[0].name : null,
+        bank: { bank_code: bCode, account_number: bAcct, account_name: bName || null },
+        fee_due_to_company: feeDue,
+        pool_balance_reduced: true,
+        note: 'the pot is already deducted from the pool balance — mark it PAID once the transfer lands' });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+  // PROCESSING → PAID. The money reached the winner's bank account: the cycle
+  // closes and the next one opens. A payout already PAID can never be paid
+  // again — that is the double-payout guard.
+  app.post('/api/payouts/:id/paid', auth, async (req, res) => {
+    const { admin_phone, transfer_reference } = req.body || {};
+    const id = req.params.id;
+    const ap = await bindPhone(req, admin_phone);
+    if (ap) return res.status(ap.status).json({ error: ap.error });
+    const phone = normPhone(admin_phone);
+    if (!phone) return res.status(400).json({ error: 'admin_phone required' });
+    try {
+      const p = await q('SELECT * FROM payouts WHERE id=$1', [id]);
+      if (!p.length) return res.status(404).json({ error: 'payout not found' });
+      const po = p[0];
+      const u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
+      if (!u.length || !(await isTreasurer(u[0].id, po.group_id))) {
+        return res.status(403).json({ error: 'only the group admin or treasurer can mark a payout paid' });
+      }
+      if (po.status === 'PAID') return res.status(409).json({ error: 'payout already paid — a second payout is blocked' });
+      if (po.status !== 'PROCESSING') return res.status(409).json({ error: `payout is ${String(po.status).toLowerCase()}, not PROCESSING` });
+      const pot = await collectedPot(po.cycle_id);
+      if (po.amount > pot) return res.status(409).json({ error: `shortfall at payment: pot is ₦${pot.toLocaleString()}, payout ₦${po.amount.toLocaleString()} — blocked` });
+      const ben = await q('SELECT u.name, u.id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.id=$1', [po.beneficiary_id]);
+      await q(`UPDATE payouts SET status='PAID', executed_at=NOW(), transfer_reference=$1 WHERE id=$2`,
+        [String(transfer_reference || '').slice(0, 80) || null, po.id]);
+      await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'payout.paid','payout',$3)`,
+        [`al-${Date.now()}`, u[0].id, po.id]);
+      // The pot has landed: close this cycle and open the next one.
       await q(`UPDATE cycles SET status='PAID_OUT' WHERE id=$1`, [po.cycle_id]);
       const g = await q('SELECT * FROM groups WHERE id=$1', [po.group_id]);
       const days = /month/i.test(g[0].frequency) ? 28 : /day/i.test(g[0].frequency) ? 1 : 7;
@@ -1539,10 +1862,313 @@ async function main() {
         `₦${po.amount.toLocaleString()} released to ${ben.length ? ben[0].name : 'the beneficiary'} (cycle ${cycSeq(po.cycle_id)}). Approved by a second member.`);
       await notifyGroup(po.group_id, 'due', `Cycle ${Number(cycSeq(po.cycle_id)) + 1} is open`,
         `₦${g[0].amount.toLocaleString()} due in ${days} days — pay early to keep your score. Next up: see Payout order.`);
-      res.json({ ok: true, status: 'APPROVED', payout_id: po.id, amount: po.amount,
+      res.json({ ok: true, status: 'PAID', payout_id: po.id, amount: po.amount,
         beneficiary: ben.length ? ben[0].name : null, next_cycle_id: ncid });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
+  // PROCESSING → FAILED: the transfer did not go through. The pot goes straight
+  // back into the pool balance (poolBalance only subtracts PROCESSING/PAID) and
+  // the same payout can be approved again — the cycle is never closed twice.
+  app.post('/api/payouts/:id/fail', auth, async (req, res) => {
+    const { admin_phone, reason } = req.body || {};
+    const id = req.params.id;
+    const ap = await bindPhone(req, admin_phone);
+    if (ap) return res.status(ap.status).json({ error: ap.error });
+    const phone = normPhone(admin_phone);
+    if (!phone) return res.status(400).json({ error: 'admin_phone required' });
+    const why = String(reason || '').trim();
+    if (why.length < 3) return res.status(400).json({ error: 'a reason is required — why did the transfer fail?' });
+    try {
+      const p = await q('SELECT * FROM payouts WHERE id=$1', [id]);
+      if (!p.length) return res.status(404).json({ error: 'payout not found' });
+      const po = p[0];
+      const u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
+      if (!u.length || !(await isTreasurer(u[0].id, po.group_id))) {
+        return res.status(403).json({ error: 'only the group admin or treasurer can fail a payout' });
+      }
+      if (po.status === 'PAID') return res.status(409).json({ error: 'payout already paid — it cannot be failed' });
+      if (po.status !== 'PROCESSING') return res.status(409).json({ error: `payout is ${String(po.status).toLowerCase()}, not PROCESSING` });
+      await q(`UPDATE payouts SET status='FAILED', failure_reason=$1 WHERE id=$2`, [why.slice(0, 300), po.id]);
+      await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id, detail) VALUES ($1,$2,'payout.failed','payout',$3,$4)`,
+        [`al-${Date.now()}`, u[0].id, po.id, JSON.stringify({ reason: why.slice(0, 300) })]);
+      await notifyGroup(po.group_id, 'payout', '⚠️ Payout failed — pot restored',
+        `₦${po.amount.toLocaleString()} to the beneficiary did not go out (${why.slice(0, 80)}). The money is back in the pool balance and can be approved again.`);
+      res.json({ ok: true, status: 'FAILED', payout_id: po.id, note: 'the pot is back in the pool balance' });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+  // The treasurer sends the ajo fees from the pool bank account to FIDELITY
+  // (that is the only place they can physically be: Direct Transfer put them in
+  // the pool). This records that it was done — the platform never moves money
+  // out of a group's bank account by itself.
+  app.post('/api/groups/:id/fees/remitted', auth, async (req, res) => {
+    const gid = req.params.id;
+    const { admin_phone, amount, reference } = req.body || {};
+    const ap = await bindPhone(req, admin_phone);
+    if (ap) return res.status(ap.status).json({ error: ap.error });
+    const phone = normPhone(admin_phone);
+    if (!phone) return res.status(400).json({ error: 'admin_phone required' });
+    try {
+      const u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
+      if (!u.length || !(await isTreasurer(u[0].id, gid))) {
+        return res.status(403).json({ error: 'only the group admin or treasurer can record a fee remittance' });
+      }
+      const due = await feesHeldInPool(gid);
+      if (due <= 0) return res.status(409).json({ error: 'no AJOCREDIT fees are owed from this pool' });
+      const amt = Number.isFinite(+amount) && +amount > 0 ? Math.min(Math.round(+amount * 100) / 100, due) : due;
+      await q(`INSERT INTO fee_remittances (id, group_id, amount, reference, status, detail) VALUES ($1,$2,$3,$4,'CONFIRMED',$5)`,
+        [`fr-${Date.now()}`, gid, amt, String(reference || '').slice(0, 80) || null, 'recorded by treasurer']);
+      await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id, detail) VALUES ($1,$2,'fees.remitted','group',$3,$4)`,
+        [`al-${Date.now()}`, u[0].id, gid, JSON.stringify({ amount: amt })]);
+      res.json({ ok: true, remitted: amt, still_due: await feesHeldInPool(gid) });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+  // ---------------- Direct Transfer: receipt upload + treasurer review ----------------
+  // A plain bank transfer proves nothing on its own. The member uploads the
+  // receipt, the claim sits at PENDING, and NOTHING enters the pool balance
+  // until a treasurer confirms it. Rejected claims free the member to upload
+  // again; a confirmed claim becomes an ordinary CONFIRMED contribution.
+  const RECEIPT_MAX_BYTES = 4 * 1024 * 1024;
+  // Only a real screenshot/photo counts: PNG, JPEG, GIF or WebP magic bytes.
+  function receiptMagic(b) {
+    if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+    if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
+    if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return 'image/gif';
+    if (b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP') return 'image/webp';
+    return null;
+  }
+  // Returns { dataUrl, hash, mime } or null when it is not an acceptable receipt.
+  function parseReceipt(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return null;
+    const m = s.match(/^data:image\/[a-z0-9.+-]+;base64,([\s\S]+)$/i);
+    const b64 = (m ? m[1] : s).replace(/\s+/g, '');
+    if (b64.length < 16 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) return null;
+    const bytes = Buffer.from(b64, 'base64');
+    if (!bytes.length || bytes.length > RECEIPT_MAX_BYTES) return null;
+    const mime = receiptMagic(bytes);
+    if (!mime) return null;
+    return {
+      dataUrl: `data:${mime};base64,${b64}`,
+      hash: crypto.createHash('sha256').update(bytes).digest('hex'),
+      mime,
+    };
+  }
+
+  // The member says "I transferred" — this records the claim as PENDING.
+  app.post('/api/claims', auth, async (req, res) => {
+    const { membership_id, cycle_id, amount, receipt, bank_reference } = req.body || {};
+    if (!membership_id || !cycle_id || !amount) {
+      return res.status(400).json({ error: 'membership_id, cycle_id, amount and receipt are required' });
+    }
+    const mb = await bindMember(req, membership_id);
+    if (mb) return res.status(mb.status).json({ error: mb.error });
+    const amt = Math.round(Number(amount));
+    if (!Number.isFinite(amt) || amt <= 0 || amt > 10000000) {
+      return res.status(400).json({ error: 'amount must be between ₦1 and ₦10,000,000' });
+    }
+    const img = parseReceipt(receipt);
+    if (!img) return res.status(400).json({ error: 'Attach the transfer receipt as an image (PNG or JPG screenshot).' });
+    try {
+      const mem = await q(`SELECT m.*, cy.group_id AS gid FROM memberships m, cycles cy
+        WHERE m.id=$1 AND cy.id=$2 AND m.group_id=cy.group_id`, [membership_id, cycle_id]);
+      if (!mem.length) return res.status(404).json({ error: 'that membership and cycle do not belong together' });
+      if (mem[0].status !== 'ACTIVE') return res.status(403).json({ error: 'only active members can claim a transfer' });
+      const gid = mem[0].gid;
+      const pr = await q('SELECT * FROM group_pools WHERE group_id=$1', [gid]);
+      if (!pr.length || !pr[0].verified || !pr[0].account_number) {
+        return res.status(422).json({ error: 'This group has no verified pool account yet, so a direct transfer cannot be tracked. Ask the admin to save and verify it first.' });
+      }
+      // One receipt proves one payment — the same picture is never accepted twice.
+      const dup = await q('SELECT id, status FROM transfer_claims WHERE receipt_hash=$1', [img.hash]);
+      if (dup.length) return res.status(409).json({ error: 'That receipt image has already been used. Each transfer needs its own receipt.' });
+      const { fee, total } = feeFor(amt);
+      const reference = `TRF-${Date.now()}`;
+      const cid = `ct-${Date.now()}`;
+      const claimId = `tc-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
+      // The unique partial index (one PENDING claim per member per cycle) is
+      // what actually enforces "no second upload while one is open".
+      const ins = await q(`INSERT INTO transfer_claims
+          (id, membership_id, group_id, cycle_id, amount, fee, total, channel,
+           bank_reference, receipt, receipt_hash, contribution_id, status)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,'direct_transfer',$8,$9,$10,$11,'PENDING')
+        RETURNING id, status, created_at`,
+        [claimId, membership_id, gid, cycle_id, amt, fee, total,
+          String(bank_reference || '').trim().slice(0, 60) || null, img.dataUrl, img.hash, cid]);
+      // The contribution exists but is PENDING: pool_balance only counts
+      // CONFIRMED rows, so an unreviewed claim can never reach the pot.
+      await q(`INSERT INTO contributions (id, membership_id, cycle_id, amount, fee, total, method, reference, status)
+        VALUES ($1,$2,$3,$4,$5,$6,'direct_transfer',$7,'PENDING') ON CONFLICT (reference) DO NOTHING`,
+        [cid, membership_id, cycle_id, amt, fee, total, reference]);
+      const plan = await routingPlan(gid, amt, fee, 'bank', 'direct_transfer');
+      await recordPaymentTx(plan, gid, membership_id, reference, 'bank', 'AWAITING_REVIEW');
+      await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'claim.submit','transfer_claim',$3)`,
+        [`al-${Date.now()}`, membership_id, ins[0].id]);
+      const reviewers = await q(`SELECT user_id FROM memberships WHERE group_id=$1 AND role IN ('admin','treasurer') AND status='ACTIVE'`, [gid]);
+      const payer = await q('SELECT u.name FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.id=$1', [membership_id]);
+      for (const rv of reviewers) await notifyUser(rv.user_id, 'claim_pending', 'Transfer receipt waiting 🧾',
+        `${payer.length ? payer[0].name : 'A member'} claims ₦${amt.toLocaleString()} by direct transfer. Review it before it counts.`);
+      res.json({ ok: true, id: ins[0].id, status: 'PENDING', reference, amount: amt, fee, total,
+        channel: 'direct_transfer', receipt_accepted: true,
+        note: 'Waiting for the treasurer — this is NOT in the pool balance yet.' });
+    } catch (e) {
+      if (e && e.code === '23505') {
+        return res.status(409).json({ error: 'You already have an open receipt claim for this cycle. Wait for the treasurer to confirm or reject it.' });
+      }
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // The treasurer's review queue: receipt image, amount, member, date.
+  app.get('/api/claims/pending/:groupId', auth, async (req, res) => {
+    const gid = req.params.groupId;
+    const tb = await bindTreasurer(req, gid);
+    if (tb) return res.status(tb.status).json({ error: tb.error });
+    try {
+      const rows = await q(`
+        SELECT tc.id, tc.amount, tc.fee, tc.total, tc.bank_reference, tc.receipt, tc.status,
+               tc.created_at, tc.membership_id, tc.cycle_id, tc.channel,
+               u.name AS member_name, u.phone AS member_phone, cy.seq AS cycle_seq
+          FROM transfer_claims tc
+          JOIN memberships m ON m.id = tc.membership_id
+          JOIN users u ON u.id = m.user_id
+          JOIN cycles cy ON cy.id = tc.cycle_id
+         WHERE tc.group_id = $1 AND tc.status = 'PENDING'
+         ORDER BY tc.created_at DESC
+         LIMIT 100`, [gid]);
+      const counts = {};
+      for (const d of await q(`SELECT status, COUNT(*)::int AS n FROM transfer_claims WHERE group_id=$1 GROUP BY status`, [gid])) {
+        counts[d.status] = d.n;
+      }
+      res.json({ ok: true, claims: rows, counts });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
+  // A member's own claim history (including why one was rejected).
+  app.get('/api/claims/mine/:membershipId', auth, async (req, res) => {
+    const mb = await bindMember(req, req.params.membershipId);
+    if (mb) return res.status(mb.status).json({ error: mb.error });
+    try {
+      const rows = await q(`SELECT id, cycle_id, amount, fee, total, status, channel, reject_reason, created_at, reviewed_at
+        FROM transfer_claims WHERE membership_id=$1 ORDER BY created_at DESC LIMIT 50`, [req.params.membershipId]);
+      res.json({ ok: true, claims: rows });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
+  // Treasurer confirms: only now does the money reach the pool balance.
+  app.post('/api/claims/:id/confirm', auth, async (req, res) => {
+    const claimed = (req.body || {}).admin_phone || (req.body || {}).treasurer_phone;
+    const phone = normPhone(claimed);
+    if (!phone) return res.status(400).json({ error: 'admin_phone required' });
+    const bindErr = await bindPhone(req, claimed);
+    if (bindErr) return res.status(bindErr.status).json({ error: bindErr.error });
+    try {
+      const cl = await q('SELECT * FROM transfer_claims WHERE id=$1', [req.params.id]);
+      if (!cl.length) return res.status(404).json({ error: 'claim not found' });
+      const c = cl[0];
+      const u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
+      if (!u.length || !(await isTreasurer(u[0].id, c.group_id))) {
+        return res.status(403).json({ error: 'only the group treasurer or admin can confirm a payment' });
+      }
+      if (c.status !== 'PENDING') return res.status(409).json({ error: `claim already ${String(c.status).toLowerCase()}` });
+      const cref = c.contribution_id
+        ? await q('SELECT reference FROM contributions WHERE id=$1', [c.contribution_id])
+        : [];
+      const ref = cref.length ? cref[0].reference : c.id;
+      await q(`UPDATE transfer_claims SET status='CONFIRMED', reviewed_by=$1, reviewed_at=NOW(), reject_reason=NULL WHERE id=$2`,
+        [u[0].id, c.id]);
+      // Only CONFIRMED contributions ever enter pool_balance.
+      await q(`UPDATE contributions SET status='CONFIRMED' WHERE id=$1 AND status='PENDING'`, [c.contribution_id]);
+      const h = crypto.createHash('sha256').update('claim:' + c.id).digest('hex').slice(0, 16);
+      const h2 = crypto.createHash('sha256').update('claimfee:' + c.id).digest('hex').slice(0, 16);
+      await q(`INSERT INTO ledger_entries (id, group_id, debit_acct, credit_acct, amount, type, ref_id, idempotency_key, status, hash)
+        VALUES ($1,$2,$3,$4,$5,'contribution',$6,$7,'CONFIRMED',$8) ON CONFLICT (idempotency_key) DO NOTHING`,
+        [`le-${Date.now()}c`, c.group_id, 'psp:direct_transfer', `pot:${c.group_id}`, Number(c.amount), ref, `webhook:${ref}`, h]);
+      if (Number(c.fee) > 0) {
+        await q(`INSERT INTO ledger_entries (id, group_id, debit_acct, credit_acct, amount, type, ref_id, idempotency_key, status, hash)
+          VALUES ($1,$2,$3,$4,$5,'fee',$6,$7,'CONFIRMED',$8) ON CONFLICT (idempotency_key) DO NOTHING`,
+          [`le-${Date.now()}cf`, c.group_id, `member:${c.membership_id}`, 'revenue:ajocredit-fees', Number(c.fee), ref, `webhook:${ref}:fee`, h2]);
+      }
+      try { await confirmPaymentTx(ref, 'bank'); }
+      catch (e) { console.log('claim transaction confirm failed: ' + e.message); }
+      await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,'claim.confirm','transfer_claim',$3)`,
+        [`al-${Date.now()}`, u[0].id, c.id]);
+      await announceContribution({ group_id: c.group_id, cycle_id: c.cycle_id, membership_id: c.membership_id, pot: Number(c.amount) }, ref);
+      res.json({ ok: true, status: 'CONFIRMED', claim_id: c.id, amount: Number(c.amount), fee: Number(c.fee),
+        entered_pool: true, note: 'Now counted in the group pool balance.' });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
+  // Treasurer rejects: with a reason, and the member is free to upload again.
+  app.post('/api/claims/:id/reject', auth, async (req, res) => {
+    const { admin_phone, treasurer_phone, reason } = req.body || {};
+    const claimed = admin_phone || treasurer_phone;
+    const phone = normPhone(claimed);
+    if (!phone) return res.status(400).json({ error: 'admin_phone required' });
+    const why = String(reason || '').trim();
+    if (why.length < 3) return res.status(400).json({ error: 'a rejection reason is required so the member knows what to fix' });
+    const bindErr = await bindPhone(req, claimed);
+    if (bindErr) return res.status(bindErr.status).json({ error: bindErr.error });
+    try {
+      const cl = await q('SELECT * FROM transfer_claims WHERE id=$1', [req.params.id]);
+      if (!cl.length) return res.status(404).json({ error: 'claim not found' });
+      const c = cl[0];
+      const u = await q('SELECT * FROM users WHERE phone=$1', [phone]);
+      if (!u.length || !(await isTreasurer(u[0].id, c.group_id))) {
+        return res.status(403).json({ error: 'only the group treasurer or admin can reject a payment' });
+      }
+      if (c.status !== 'PENDING') return res.status(409).json({ error: `claim already ${String(c.status).toLowerCase()}` });
+      const cref = c.contribution_id
+        ? await q('SELECT reference FROM contributions WHERE id=$1', [c.contribution_id])
+        : [];
+      const ref = cref.length ? cref[0].reference : c.id;
+      await q(`UPDATE transfer_claims SET status='REJECTED', reject_reason=$1, reviewed_by=$2, reviewed_at=NOW() WHERE id=$3`,
+        [why.slice(0, 300), u[0].id, c.id]);
+      // The money never entered, but the row must not linger as PENDING either.
+      await q(`UPDATE contributions SET status='REJECTED' WHERE id=$1 AND status='PENDING'`, [c.contribution_id]);
+      await q(`UPDATE transactions SET status='REJECTED' WHERE reference=$1`, [ref]);
+      await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id, detail) VALUES ($1,$2,'claim.reject','transfer_claim',$3,$4)`,
+        [`al-${Date.now()}`, u[0].id, c.id, JSON.stringify({ reason: why.slice(0, 300) })]);
+      const owner = c.membership_id ? await q('SELECT user_id FROM memberships WHERE id=$1', [c.membership_id]) : [];
+      if (owner.length) {
+        await notifyUser(owner[0].user_id, 'claim_rejected', 'Receipt rejected ❌',
+          `Your ₦${Number(c.amount).toLocaleString()} transfer receipt was not accepted: ${why.slice(0, 120)} You can upload a corrected receipt now.`);
+      }
+      res.json({ ok: true, status: 'REJECTED', claim_id: c.id, reason: why.slice(0, 300),
+        note: 'The open slot is free again — the member can upload a corrected receipt.' });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
+  // Appoint (or remove) a treasurer: someone other than the admin who can
+  // review receipts and mark payouts. Groups default to "the admin is the
+  // treasurer" until one is appointed.
+  app.post('/api/groups/:id/treasurer', auth, async (req, res) => {
+    const gid = req.params.id;
+    const b = req.body || {};
+    const claimed = b.admin_phone;
+    const bindErr = await bindPhone(req, claimed);
+    if (bindErr) return res.status(bindErr.status).json({ error: bindErr.error });
+    try {
+      let actor = null;
+      if (req.user && (await isAdmin(req.user, gid))) actor = req.user;
+      if (!actor) {
+        const p = normPhone(claimed);
+        const u = p ? await q('SELECT id FROM users WHERE phone=$1', [p]) : [];
+        if (u.length && (await isAdmin(u[0].id, gid))) actor = u[0].id;
+      }
+      if (!actor) return res.status(403).json({ error: 'only a group admin can appoint a treasurer' });
+      const mid = String(b.membership_id || '').trim();
+      if (!mid) return res.status(400).json({ error: 'membership_id required' });
+      const target = await q(`SELECT id, role FROM memberships WHERE id=$1 AND group_id=$2`, [mid, gid]);
+      if (!target.length) return res.status(404).json({ error: 'member not found in this group' });
+      const action = b.action === 'remove' ? 'remove' : 'add';
+      const role = action === 'remove' ? 'member' : 'treasurer';
+      await q(`UPDATE memberships SET role=$1 WHERE id=$2`, [role, mid]);
+      await q(`INSERT INTO audit_log (id, actor_id, action, entity, entity_id) VALUES ($1,$2,$3,'membership',$4)`,
+        [`al-${Date.now()}`, actor, 'treasurer.' + action, mid]);
+      res.json({ ok: true, membership_id: mid, role });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
   function cycSeq(cycleId) { const m = String(cycleId).match(/-(\d+)$/); return m ? m[1] : '1'; }
 
   app.listen(PORT, '0.0.0.0', () => console.log(`AJOCREDIT API on :${PORT}`));

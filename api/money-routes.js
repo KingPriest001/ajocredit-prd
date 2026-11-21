@@ -61,11 +61,13 @@ async function installSchema(deps) {
       fee_destination TEXT,
       gateway TEXT,
       mode TEXT,
+      channel TEXT,
       status TEXT NOT NULL DEFAULT 'PENDING',
       reference TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     ALTER TABLE transactions ADD COLUMN IF NOT EXISTS gateway_fee NUMERIC NOT NULL DEFAULT 0;
+    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS channel TEXT;
     CREATE INDEX IF NOT EXISTS transactions_group_idx ON transactions (group_id);
     CREATE INDEX IF NOT EXISTS transactions_created_idx ON transactions (created_at DESC);
 
@@ -110,6 +112,12 @@ async function ensurePool(ctx, groupId) {
 
 // The money a group has collected - contributions only. Never the fees: a
 // group admin must not see the company's money.
+//
+// A payout takes money OUT of the pool: it is deducted the moment it enters
+// PROCESSING (the pot is committed to the winner) and stays out once PAID.
+// A FAILED payout drops back in. A payout still waiting for its second pair of
+// eyes (PENDING) has not been deducted yet, but it is reported separately so
+// nobody spends money that is already promised.
 async function poolBalance(ctx, groupId) {
   const { q } = ctx;
   const rows = await q(
@@ -122,9 +130,21 @@ async function poolBalance(ctx, groupId) {
     [groupId]
   );
   const r = rows.length ? rows[0] : { collected: 0, fees_booked: 0, payments: 0 };
+  const po = await q(
+    `SELECT COALESCE(SUM(amount) FILTER (WHERE status IN ('PROCESSING','PAID')),0)::float AS gone,
+            COALESCE(SUM(amount) FILTER (WHERE status='PENDING'),0)::float AS awaiting
+       FROM payouts WHERE group_id=$1`,
+    [groupId]
+  );
+  const p = po.length ? po[0] : { gone: 0, awaiting: 0 };
+  const collected = Number(r.collected) || 0;
+  const gone = Number(p.gone) || 0;
   return {
     group_id: groupId,
-    pool_balance: Number(r.collected) || 0,
+    pool_balance: Math.round((collected - gone) * 100) / 100,
+    contributions_in: collected,
+    payouts_out: gone,
+    payouts_awaiting_approval: Number(p.awaiting) || 0,
     payments: r.payments || 0,
     // The fee total is the company's, so the group is told nothing about it.
     note: 'This is the group pool only. AJOCREDIT fees belong to the company and are not shown here.',
@@ -334,7 +354,9 @@ function installRoutes(ctx) {
       // Totals never count a failed payment (FAILED / SPLIT_FAILED): money that
       // was not taken - or could not be split - must not inflate what was
       // actually collected. The rows above still show every attempt.
-      const totalWhere = [...where, `status NOT LIKE '%FAILED%'`];
+      // AWAITING_REVIEW / REJECTED are direct-transfer claims a treasurer has
+      // not confirmed (or has refused): they are not collected money either.
+      const totalWhere = [...where, `status NOT LIKE '%FAILED%'`, `status NOT IN ('AWAITING_REVIEW','REJECTED')`];
       const totals = await q(
         `SELECT COALESCE(SUM(contribution_amount),0)::float AS contributions,
                 COALESCE(SUM(fee_amount),0)::float AS fees,
@@ -352,14 +374,14 @@ function installRoutes(ctx) {
     try {
       const company = await q("SELECT * FROM company_account WHERE id='main'");
       const r = await q(
-        `SELECT COALESCE(SUM(fee_amount) FILTER (WHERE status NOT LIKE '%FAILED%'),0)::float AS collected,
-                COUNT(*) FILTER (WHERE status NOT LIKE '%FAILED%')::int AS payments,
-                COALESCE(SUM(fee_amount) FILTER (WHERE status='PENDING'),0)::float AS pending,
-                COALESCE(SUM(fee_amount) FILTER (WHERE status LIKE '%FAILED%'),0)::float AS failed
+        `SELECT COALESCE(SUM(fee_amount) FILTER (WHERE status NOT LIKE '%FAILED%' AND status NOT IN ('AWAITING_REVIEW','REJECTED')),0)::float AS collected,
+                COUNT(*) FILTER (WHERE status NOT LIKE '%FAILED%' AND status NOT IN ('AWAITING_REVIEW','REJECTED'))::int AS payments,
+                COALESCE(SUM(fee_amount) FILTER (WHERE status IN ('PENDING','AWAITING_REVIEW')),0)::float AS pending,
+                COALESCE(SUM(fee_amount) FILTER (WHERE status LIKE '%FAILED%' OR status='REJECTED'),0)::float AS failed
            FROM transactions`);
       const byGroup = await q(
-        `SELECT group_id, COALESCE(SUM(fee_amount) FILTER (WHERE status NOT LIKE '%FAILED%'),0)::float AS fees,
-                COUNT(*) FILTER (WHERE status NOT LIKE '%FAILED%')::int AS payments
+        `SELECT group_id, COALESCE(SUM(fee_amount) FILTER (WHERE status NOT LIKE '%FAILED%' AND status NOT IN ('AWAITING_REVIEW','REJECTED')),0)::float AS fees,
+                COUNT(*) FILTER (WHERE status NOT LIKE '%FAILED%' AND status NOT IN ('AWAITING_REVIEW','REJECTED'))::int AS payments
            FROM transactions GROUP BY group_id ORDER BY fees DESC LIMIT 50`);
       res.json({
         ok: true,

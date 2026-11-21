@@ -87,6 +87,69 @@ CREATE TABLE IF NOT EXISTS payouts (
   executed_at TIMESTAMPTZ
 );
 
+-- Direct Transfer: the member sends the money straight to the group's pool
+-- account and uploads a receipt. The treasurer confirms or rejects it — only a
+-- CONFIRMED claim ever reaches the pool balance.
+CREATE TABLE IF NOT EXISTS transfer_claims (
+  id TEXT PRIMARY KEY,
+  membership_id TEXT NOT NULL REFERENCES memberships(id) ON DELETE CASCADE,
+  group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  cycle_id TEXT NOT NULL REFERENCES cycles(id) ON DELETE CASCADE,
+  amount NUMERIC NOT NULL,
+  fee NUMERIC NOT NULL DEFAULT 0,
+  total NUMERIC NOT NULL,
+  channel TEXT NOT NULL DEFAULT 'direct_transfer',
+  bank_reference TEXT,
+  receipt TEXT,
+  receipt_hash TEXT,
+  contribution_id TEXT,
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  reject_reason TEXT,
+  reviewed_by TEXT,
+  reviewed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_transfer_claims_group_status ON transfer_claims(group_id, status, created_at DESC);
+-- One OPEN claim per member per cycle: a second upload is refused until the
+-- treasurer confirms or rejects the first. Enforced by the database, not by
+-- application luck.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_transfer_claims_open
+  ON transfer_claims(membership_id, cycle_id) WHERE status='PENDING';
+
+-- Virtual accounts issued by Flutterwave for a payment. ₦0 gateway fee: the
+-- member bank-transfers the total and Flutterwave's webhook auto-confirms it.
+CREATE TABLE IF NOT EXISTS payment_vas (
+  reference TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  membership_id TEXT NOT NULL REFERENCES memberships(id) ON DELETE CASCADE,
+  cycle_id TEXT NOT NULL REFERENCES cycles(id) ON DELETE CASCADE,
+  amount NUMERIC NOT NULL DEFAULT 0,
+  fee NUMERIC NOT NULL DEFAULT 0,
+  total NUMERIC NOT NULL DEFAULT 0,
+  va_number TEXT,
+  va_bank TEXT,
+  va_bank_name TEXT,
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_payment_vas_cycle ON payment_vas(membership_id, cycle_id, status);
+
+-- Fees that were paid into a group's pool bank account on the Direct Transfer
+-- channel and are still owed to AJOCREDIT's FIDELITY account. They are never
+-- the group's money, so they never reach pool_balance — they are remitted when
+-- the cycle is paid out.
+CREATE TABLE IF NOT EXISTS fee_remittances (
+  id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  payout_id TEXT,
+  amount NUMERIC NOT NULL DEFAULT 0,
+  reference TEXT,
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  detail TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_fee_remit_group ON fee_remittances(group_id, status);
+
 CREATE TABLE IF NOT EXISTS ledger_entries (
   id TEXT PRIMARY KEY,
   group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,

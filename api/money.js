@@ -85,6 +85,13 @@ async function destinations(ctx, groupId) {
 //             behaviour) and the ledger splits it. Safe, and the default.
 async function plan(ctx, opts) {
   const { groupId, amount, fee, gateway } = opts;
+  // Which channel the member is paying on. 'direct_transfer' (straight to the
+  // group's pool bank account) and 'virtual_account' (bank transfer into a
+  // Flutterwave-issued account) have NO gateway fee — the member never touches
+  // a card, so Flutterwave never takes a cut. The ajo fee still applies on
+  // every channel; only the gateway fee differs.
+  const channel = opts.channel || 'gateway';
+  const noGatewayFee = channel === 'direct_transfer' || channel === 'virtual_account' || gateway === 'bank';
   const { company, pool } = await destinations(ctx, groupId);
   const shares = splitShares(amount, fee);
 
@@ -96,7 +103,7 @@ async function plan(ctx, opts) {
   // keeping the pool at exactly the contribution and the fee account at
   // exactly the fee. (Paystack is disabled for launch; its fee model must be
   // wired in here before it is switched on.)
-  const charge = gateway === 'flutterwave' ? chargeFor(total) : total;
+  const charge = gateway === 'flutterwave' && !noGatewayFee ? chargeFor(total) : total;
   const gateway_fee = Math.round((charge - total) * 100) / 100;
 
   const companySub = company ? (gateway === 'paystack' ? company.paystack_subaccount_code : company.flutterwave_subaccount_id) : null;
@@ -104,6 +111,7 @@ async function plan(ctx, opts) {
 
   const base = {
     gateway,
+    channel,
     amount: Number(amount) || 0,
     fee: Number(fee) || 0,
     total,
@@ -131,6 +139,21 @@ async function plan(ctx, opts) {
     } : null,
   };
 
+  // Two channels never split at a gateway because there is no gateway: the
+  // money arrives in a bank account by ordinary transfer. There is no fee to
+  // take, so there is no pass-through either — charge is exactly the ajo total.
+  if (channel === 'direct_transfer') {
+    return Object.assign(base, {
+      mode: 'direct_transfer',
+      reason: 'the member transfers straight into the group pool account — ₦0 gateway fee',
+    });
+  }
+  if (channel === 'virtual_account') {
+    return Object.assign(base, {
+      mode: 'virtual_account',
+      reason: 'the member transfers into a Flutterwave virtual account — ₦0 gateway fee',
+    });
+  }
   if (company && pool && companySub && poolSub && pool.split_enabled) {
     return Object.assign(base, { mode: 'split', reason: 'both destinations have a verified subaccount' });
   }
@@ -147,6 +170,9 @@ async function plan(ctx, opts) {
 function assertNoMixing(p) {
   if (!p) throw new Error('no money routing plan');
   if (p.mode === 'custody') return true;
+  // A virtual account settles into AJOCREDIT's own Flutterwave account — there
+  // is no split to get wrong, and the ledger (not the gateway) places each leg.
+  if (p.mode === 'virtual_account') return true;
   if (!p.company || !p.pool) throw new Error('a split needs both a company account and a group pool');
   if (!p.company.account_number || !p.pool.account_number) throw new Error('a split needs both account numbers');
   if (String(p.company.account_number) === String(p.pool.account_number)) {
@@ -260,14 +286,15 @@ async function recordTransaction(ctx, row) {
   const id = row.id || `tx-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
   await q(
     `INSERT INTO transactions (id, transaction_id, group_id, member_id, contribution_amount, fee_amount,
-       total_amount, gateway_fee, contribution_destination, fee_destination, gateway, mode, status, reference, created_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())`,
+       total_amount, gateway_fee, contribution_destination, fee_destination, gateway, mode, channel, status, reference, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW())`,
     [
       id, row.transaction_id || null, row.group_id || null, row.member_id || null,
       Number(row.contribution_amount) || 0, Number(row.fee_amount) || 0,
       Number(row.total_amount) || 0, Number(row.gateway_fee) || 0,
       row.contribution_destination || null, row.fee_destination || null,
-      row.gateway || null, row.mode || null, row.status || 'PENDING',
+      row.gateway || null, row.mode || null, row.channel || row.mode || null,
+      row.status || 'PENDING',
       row.reference || null,
     ]
   );
